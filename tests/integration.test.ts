@@ -147,5 +147,7 @@ describe('term matching precision', () => {
     const tls = `curl: (60) SSL certificate problem: self-signed certificate
 curl failed to verify the legitimacy of the server and therefore could not establish a secure connection to it.`
     expect(matchErrorOutput(store, tls)).toEqual([])
+    const short = 'curl: (60) SSL certificate problem: self-signed certificate\ncurl failed to verify the legitimacy of the server'
+    expect(matchErrorOutput(store, short)).toEqual([])
   })
 })

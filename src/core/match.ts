@@ -16,6 +16,9 @@ const STOP = new Set(
    internal process expected unexpected missing invalid https http www com`.split(/\s+/),
 )
 const MIN_SIGNATURE = 12
+// Error codes, package names, flags: ERR_PNPM_LIFECYCLE, @prisma/client, linux-x64. Plain words
+// like "server" or "curl" show up in unrelated failures and are not enough on their own.
+const IDENTIFIER = /[_@/.$-]|\d/
 const MIN_SIGNATURE_TOKENS = 2
 
 /**
@@ -36,7 +39,8 @@ export function isDistinctiveSignature(signature: string): boolean {
  * Built for precision: injecting a wrong pitfall into an agent's context is worse than none.
  *  1. signature: an entry's normalized error signature occurs verbatim in the normalized output.
  *  2. terms: distinctive tokens from the error lines (no generic words, no numbers) overlap the
- *     entry's title/symptom/signature: 3+ tokens covering a quarter, or 2+ covering half.
+ *     entry's title/symptom/signature: 3+ tokens covering a quarter, or 2+ covering half when one
+ *     of them is identifier-like.
  */
 export function matchErrorOutput(store: PitfallStore, output: string, limit = 3): ErrorMatch[] {
   const text = output.length > 20_000 ? output.slice(0, 4_000) + '\n' + output.slice(-16_000) : output
@@ -60,7 +64,8 @@ export function matchErrorOutput(store: PitfallStore, output: string, limit = 3)
       const hay = `${p.title}\n${p.symptom}\n${p.errorSignature}`.toLowerCase()
       const matched = tokens.filter((t) => hay.includes(t))
       const ratio = matched.length / tokens.length
-      if ((matched.length >= 3 && ratio >= 0.25) || (matched.length >= 2 && ratio >= 0.5)) {
+      const specific = matched.some((t) => IDENTIFIER.test(t))
+      if ((matched.length >= 3 && ratio >= 0.25) || (matched.length >= 2 && ratio >= 0.5 && specific)) {
         results.push({ pitfall: p, reason: 'terms', matched })
       }
     }

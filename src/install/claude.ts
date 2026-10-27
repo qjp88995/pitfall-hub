@@ -68,8 +68,9 @@ export function install(opts: InstallOptions = {}): string[] {
       const cmd = `exec docker exec -i -e PITFALL_PROJECT="$(basename "$PWD")" ${opts.docker} pitfall mcp`
       claude(['mcp', 'add', '-s', 'user', 'pitfall-hub', '--', 'sh', '-c', cmd])
     } else if (url) {
+      // --header is variadic: it must come after the positionals or it swallows them.
       const auth = opts.token ? ['--header', `Authorization: Bearer ${opts.token}`] : []
-      claude(['mcp', 'add', '-s', 'user', '--transport', 'http', ...auth, 'pitfall-hub', `${url}/mcp`])
+      claude(['mcp', 'add', '-s', 'user', '--transport', 'http', 'pitfall-hub', `${url}/mcp`, ...auth])
     }
     else claude(['mcp', 'add', '-s', 'user', 'pitfall-hub', '--', 'node', BIN, 'mcp'])
     const how = opts.docker ? `docker exec ${opts.docker}` : url ? `http ${url}/mcp` : 'stdio, local database'
@@ -110,6 +111,9 @@ function claude(args: string[], ignoreFailure = false) {
   try {
     execFileSync('claude', args, { stdio: 'pipe' })
   } catch (err) {
-    if (!ignoreFailure) throw err
+    if (ignoreFailure) return
+    // Never echo the command line: it can carry the bearer token.
+    const stderr = String((err as { stderr?: Buffer }).stderr ?? '').replace(/Bearer\s+\S+/g, 'Bearer ***')
+    throw new Error(`claude ${args.slice(0, 3).join(' ')} … failed: ${stderr.trim()}`)
   }
 }
