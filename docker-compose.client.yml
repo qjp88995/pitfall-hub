@@ -1,0 +1,24 @@
+# LOCAL CLIENT for the hosted pitfall-hub. Agents in the sandboxed workspace reach the network
+# only through Docker, so this container does it for them:
+#   MCP:   docker exec -i pitfall-hub-client pitfall mcp          (stdio → HTTPS proxy)
+#   hooks: docker exec -i pitfall-hub-client pitfall rpc <method> (JSON in/out)
+# The token lives only here (.env, gitignored), not in the agent's config.
+#   docker compose -f docker-compose.client.yml up -d --build
+#   node bin/pitfall.js install --docker pitfall-hub-client
+name: pitfall-hub-client
+
+services:
+  pitfall-hub-client:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: pitfall-hub:local
+    container_name: pitfall-hub-client
+    restart: unless-stopped
+    init: true
+    # Idle; work arrives through docker exec.
+    command: ['sleep', 'infinity']
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PITFALL_HUB_URL: ${PITFALL_HUB_URL:?PITFALL_HUB_URL required}
+      PITFALL_HUB_TOKEN: ${PITFALL_HUB_TOKEN:?PITFALL_HUB_TOKEN required}

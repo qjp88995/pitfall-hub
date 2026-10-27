@@ -46,7 +46,11 @@ export function createApp(store: PitfallStore, opts: AppOptions = {}) {
   app.on(['GET', 'DELETE'], '/mcp', (c) => c.body(null, 405, { allow: 'POST' }))
   app.post('/mcp', async (c) => {
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
-    await createMcpServer(store).connect(transport)
+    const header = (name: string) => {
+      const v = c.req.header(name)
+      return v ? decodeURIComponent(v) : undefined
+    }
+    await createMcpServer(store, { defaultProject: header('x-pitfall-project'), defaultAgent: header('x-pitfall-agent') }).connect(transport)
     return transport.handleRequest(c.req.raw)
   })
 

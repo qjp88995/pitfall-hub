@@ -30,13 +30,15 @@ const fields = {
 }
 
 export interface McpOptions {
-  /** Used when the agent does not pass `project`. Only meaningful for stdio, where cwd is the agent's. */
+  /** Used when the agent does not pass `project`: the stdio cwd, or a proxy's x-pitfall-project header. */
   defaultProject?: string
+  /** Client name when the transport cannot carry it (stateless HTTP behind a proxy). */
+  defaultAgent?: string
 }
 
 export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
   const server = new McpServer({ name: 'pitfall-hub', version: '0.1.0' })
-  const agent = () => server.server.getClientVersion()?.name ?? ''
+  const agent = () => server.server.getClientVersion()?.name ?? opts.defaultAgent ?? ''
   const feedbackStore = new FeedbackStore(store.db)
 
   server.registerTool(

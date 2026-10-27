@@ -19,7 +19,7 @@ Usage:
   pitfall import <file>                upsert from a JSON dump
   pitfall stats
   pitfall serve [--port 4477] [--host h] Web UI + JSON API (binds 127.0.0.1 by default)
-  pitfall mcp                          MCP server over stdio
+  pitfall mcp                          MCP server over stdio (with PITFALL_HUB_URL: proxy to that server)
   pitfall hook <event>                 Claude Code hook handler (reads stdin)
                                        data source: PITFALL_HUB_DOCKER=<container> | PITFALL_HUB_URL=<url> | local DB
   pitfall rpc relevant|match|issues    JSON stdin → JSON stdout (used by hooks via docker exec)
@@ -82,6 +82,29 @@ export async function main(argv: string[]) {
       console.error(`[pitfall-hub] hook ${positionals[0]} skipped: ${(err as Error).message}`)
     }
     return
+  }
+
+  // Client mode (e.g. the pitfall-hub-client container): talk to a hosted server, no local DB.
+  const remoteUrl = process.env.PITFALL_HUB_URL
+  if (remoteUrl && cmd === 'mcp') {
+    const { runMcpProxy } = await import('./mcp/proxy.js')
+    return runMcpProxy({ url: remoteUrl, token: process.env.PITFALL_HUB_TOKEN, project: process.env.PITFALL_PROJECT })
+  }
+  if (remoteUrl && cmd === 'rpc') {
+    const { remoteBackend } = await import('./hooks/claude.js')
+    const backend = remoteBackend(remoteUrl, process.env.PITFALL_HUB_TOKEN, 10_000)
+    const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string }
+    const method = positionals[0]
+    const result =
+      method === 'relevant'
+        ? await backend.relevant(body.tags ?? [], body.limit ?? 8)
+        : method === 'match'
+          ? await backend.match(body.output ?? '')
+          : method === 'issues'
+            ? await backend.openIssues(body.limit ?? 10)
+            : undefined
+    if (result === undefined) return fail(`Unknown rpc method "${method}"`)
+    return console.log(JSON.stringify(result))
   }
 
   const store = new PitfallStore(openDatabase())
