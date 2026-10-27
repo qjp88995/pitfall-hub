@@ -51,4 +51,17 @@ How to write a good entry:
 
 \`record_pitfall\` refuses exact duplicates and returns the existing entry — then use
 \`update_pitfall\` with \`append_note\` for the new variant instead of creating a near-copy.
+
+## Improve the platform
+
+pitfall-hub only gets better if I report where it fails me. In any project:
+- A surfaced pitfall has nothing to do with the problem → \`pitfall_feedback\` kind \`irrelevant\`,
+  with the actual error/query in \`note\`.
+- I later find an entry that should have been surfaced or found earlier, a tool errors, or
+  the output/capability gets in my way → \`report_platform_issue\` (\`missed\` / \`bug\` / \`idea\`).
+
+Report concrete, reproducible friction, once per occurrence; repeats add a vote. Keep reports
+generic: no secrets or proprietary code, only the error text needed to reproduce. Don't
+interrupt the user's task for it — one call, then carry on. When working in the pitfall-hub
+repo itself, the session starts with the open reports; fix them and \`resolve_platform_issue\`.
 `

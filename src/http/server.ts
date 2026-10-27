@@ -6,6 +6,7 @@ import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { Hono, type Context, type Next } from 'hono'
+import { FEEDBACK_STATUSES, FeedbackStore, type FeedbackStatus } from '../core/feedback.js'
 import { matchErrorOutput } from '../core/match.js'
 import type { PitfallStore } from '../core/store.js'
 import { STATUSES, type PitfallInput, type PitfallPatch, type PitfallStatus } from '../core/types.js'
@@ -86,6 +87,17 @@ export function createApp(store: PitfallStore, opts: AppOptions = {}) {
   app.get('/api/tags', (c) => c.json(store.tags()))
   app.get('/api/stats', (c) => c.json(store.stats()))
   app.get('/api/export', (c) => c.json(store.exportAll()))
+  const feedback = new FeedbackStore(store.db)
+  app.get('/api/feedback', (c) => {
+    const q = c.req.query('status')
+    const status = q === 'all' ? [] : q ? (q.split(',') as FeedbackStatus[]).filter((s) => FEEDBACK_STATUSES.includes(s)) : undefined
+    return c.json(feedback.list({ status, limit: Number(c.req.query('limit') ?? 100) }))
+  })
+  app.patch('/api/feedback/:id', async (c) => {
+    const { status, resolution } = await c.req.json<{ status: FeedbackStatus; resolution?: string }>()
+    const f = feedback.resolve(c.req.param('id'), status, resolution)
+    return f ? c.json(f) : c.json({ error: 'not found' }, 404)
+  })
   app.post('/api/import', async (c) => c.json(store.importMany(await c.req.json())))
 
   if (existsSync(WEB_DIST)) {

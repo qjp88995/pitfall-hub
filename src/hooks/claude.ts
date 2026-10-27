@@ -6,6 +6,7 @@ import { fingerprint } from '../core/fingerprint.js'
 import { formatErrorMatches, oneLine } from '../core/format.js'
 import { matchErrorOutput, type ErrorMatch } from '../core/match.js'
 import type { PitfallStore } from '../core/store.js'
+import { FeedbackStore, type Feedback } from '../core/feedback.js'
 import type { Pitfall } from '../core/types.js'
 
 // Claude Code hook handlers. Each reads the hook JSON from stdin and returns the JSON to print
@@ -32,21 +33,26 @@ interface SessionState {
 export interface HookBackend {
   relevant(tags: string[], limit: number): Promise<{ items: Pitfall[]; total: number }>
   match(output: string): Promise<ErrorMatch[]>
+  openIssues(limit: number): Promise<{ items: Feedback[]; total: number }>
 }
+
+/** The project whose sessions get the platform's open feedback at start. */
+const PLATFORM_PROJECT = 'pitfall-hub'
 
 export function localBackend(store: PitfallStore): HookBackend {
   return {
     relevant: async (tags, limit) => store.relevantForTags(tags, limit),
     match: async (output) => matchErrorOutput(store, output),
+    openIssues: async (limit) => new FeedbackStore(store.db).list({ limit }),
   }
 }
 
 export function remoteBackend(baseUrl: string, token?: string, timeoutMs = 3000): HookBackend {
-  const post = async <T>(path: string, body: unknown): Promise<T> => {
+  const post = async <T>(path: string, body?: unknown): Promise<T> => {
     const res = await fetch(new URL(path, baseUrl), {
-      method: 'POST',
+      method: body === undefined ? 'GET' : 'POST',
       headers: { 'content-type': 'application/json', ...(token && { authorization: `Bearer ${token}` }) },
-      body: JSON.stringify(body),
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     })
     if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`)
@@ -55,6 +61,7 @@ export function remoteBackend(baseUrl: string, token?: string, timeoutMs = 3000)
   return {
     relevant: (tags, limit) => post('/api/relevant', { tags, limit }),
     match: (output) => post('/api/match', { output }),
+    openIssues: (limit) => post(`/api/feedback?limit=${limit}`),
   }
 }
 
@@ -70,6 +77,7 @@ export function dockerBackend(container: string, timeoutMs = 5000): HookBackend 
   return {
     relevant: (tags, limit) => rpc('relevant', { tags, limit }),
     match: (output) => rpc('match', { output }),
+    openIssues: (limit) => rpc('issues', { limit }),
   }
 }
 
@@ -95,12 +103,24 @@ export async function handleHook(event: string, input: HookInput, backend: HookB
 async function sessionStart(input: HookInput, backend: HookBackend) {
   pruneSessions()
   const fp = fingerprint(input.cwd || process.cwd())
-  const { items, total } = await backend.relevant(fp.tags, SESSION_START_LIMIT)
-  if (!items.length) return null
-  const lines = [
-    `[pitfall-hub] ${total} known pitfall(s) relevant to this project's stack${total > items.length ? `, top ${items.length}` : ''}. Keep them in mind; get_pitfall <id> for details, search_pitfalls for more.`,
-    ...items.map((p) => oneLine(p)),
-  ]
+  const [{ items, total }, issues] = await Promise.all([
+    backend.relevant(fp.tags, SESSION_START_LIMIT),
+    fp.name === PLATFORM_PROJECT ? backend.openIssues(10) : null,
+  ])
+  const lines: string[] = []
+  if (items.length) {
+    lines.push(
+      `[pitfall-hub] ${total} known pitfall(s) relevant to this project's stack${total > items.length ? `, top ${items.length}` : ''}. Keep them in mind; get_pitfall <id> for details, search_pitfalls for more.`,
+      ...items.map((p) => oneLine(p)),
+    )
+  }
+  if (issues?.items.length) {
+    lines.push(
+      `[pitfall-hub] ${issues.total} open report(s) about this platform from agents in other projects (list_platform_issues for details, resolve_platform_issue when fixed):`,
+      ...issues.items.map((f) => `- ${f.id} [${f.kind}] ${f.votes}x ${f.title}`),
+    )
+  }
+  if (!lines.length) return null
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: lines.join('\n') } }
 }
 

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -150,5 +150,49 @@ curl failed to verify the legitimacy of the server and therefore could not estab
     expect(matchErrorOutput(store, tls)).toEqual([])
     const short = 'curl: (60) SSL certificate problem: self-signed certificate\ncurl failed to verify the legitimacy of the server'
     expect(matchErrorOutput(store, short)).toEqual([])
+  })
+})
+
+describe('platform feedback', () => {
+  it('dedupes reports into votes, logs irrelevant matches, and resolves', async () => {
+    const [a, b] = InMemoryTransport.createLinkedPair()
+    await createMcpServer(store, { defaultProject: 'proj-a' }).connect(a)
+    const client = new Client({ name: 'claude-code', version: '1' })
+    await client.connect(b)
+    const call = async (name: string, args: Record<string, unknown>) =>
+      ((await client.callTool({ name, arguments: args })) as { content: { text: string }[] }).content[0]!.text
+
+    const p = store.create({ title: 'pkill self kill', solution: 'x' })
+    expect(await call('pitfall_feedback', { id: p.id, kind: 'irrelevant', note: 'surfaced for a TLS error' })).toMatch(/Logged false positive fb_/)
+    expect(await call('pitfall_feedback', { id: p.id, kind: 'irrelevant', note: 'again for exit code 1' })).toContain('2x')
+
+    const first = await call('report_platform_issue', { kind: 'idea', title: 'Similar-entries hint is noisy', detail: 'lists unrelated entries' })
+    const dup = await call('report_platform_issue', { kind: 'idea', title: 'similar entries hint is noisy.', project: 'proj-b' })
+    expect(first).toMatch(/Reported fb_/)
+    expect(dup).toContain('added a vote (2x)')
+
+    const list = await call('list_platform_issues', {})
+    expect(list).toMatch(/2 platform issue\(s\)/)
+    expect(list).toContain('surfaced for a TLS error')
+
+    const id = /(fb_\w+) \[idea\]/.exec(list)![1]!
+    await call('resolve_platform_issue', { id, status: 'done', resolution: 'abc123' })
+    expect(await call('list_platform_issues', {})).toMatch(/1 platform issue\(s\)/)
+  })
+
+  it('surfaces open reports at session start only in the pitfall-hub project', async () => {
+    const { handleHook, localBackend } = await import('../src/hooks/claude.js')
+    const { FeedbackStore } = await import('../src/core/feedback.js')
+    new FeedbackStore(store.db).report({ kind: 'bug', title: 'match_error crashes on empty output' })
+    const dir = mkdtempSync(join(tmpdir(), 'x-'))
+    const hub = join(dir, 'pitfall-hub')
+    const other = join(dir, 'other')
+    for (const d of [hub, other]) {
+      mkdirSync(d)
+      writeFileSync(join(d, 'package.json'), '{}')
+    }
+    const atHub = (await handleHook('session-start', { cwd: hub }, localBackend(store))) as { hookSpecificOutput: { additionalContext: string } }
+    expect(atHub.hookSpecificOutput.additionalContext).toContain('match_error crashes on empty output')
+    expect(await handleHook('session-start', { cwd: other }, localBackend(store))).toBeNull()
   })
 })

@@ -53,6 +53,25 @@ const MIGRATIONS = [
     VALUES (new.seq, new.title, new.symptom, new.cause, new.solution, new.prevention, new.tags, new.error_signature, new.environment);
   END;
   `,
+  // Agents' reports about the platform itself (false positives, misses, bugs, ideas).
+  `
+  CREATE TABLE feedback (
+    seq            INTEGER PRIMARY KEY AUTOINCREMENT,
+    id             TEXT NOT NULL UNIQUE,
+    kind           TEXT NOT NULL,
+    title          TEXT NOT NULL,
+    detail         TEXT NOT NULL DEFAULT '',
+    pitfall_id     TEXT,
+    source_project TEXT NOT NULL DEFAULT '',
+    source_agent   TEXT NOT NULL DEFAULT '',
+    status         TEXT NOT NULL DEFAULT 'open',
+    votes          INTEGER NOT NULL DEFAULT 1,
+    resolution     TEXT NOT NULL DEFAULT '',
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+  );
+  CREATE INDEX feedback_status ON feedback(status);
+  `,
 ]
 
 export function openDatabase(path = defaultDbPath()): DatabaseSync {

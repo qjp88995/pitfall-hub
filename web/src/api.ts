@@ -51,3 +51,12 @@ export const api = {
   tags: () => request<{ tag: string; count: number }[]>('/tags'),
   stats: () => request<Stats>('/stats'),
 }
+
+export type { Feedback, FeedbackStatus } from '../../src/core/types.ts'
+import type { Feedback, FeedbackStatus } from '../../src/core/types.ts'
+
+export const feedbackApi = {
+  list: (status: string) => request<{ items: Feedback[]; total: number }>(`/feedback?status=${status}`),
+  resolve: (id: string, status: FeedbackStatus, resolution?: string) =>
+    request<Feedback>(`/feedback/${id}`, { method: 'PATCH', body: JSON.stringify({ status, resolution }) }),
+}

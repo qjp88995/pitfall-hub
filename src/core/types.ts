@@ -69,3 +69,34 @@ export interface SearchResult {
   items: SearchHit[]
   total: number
 }
+
+export const FEEDBACK_KINDS = ['false_positive', 'missed', 'bug', 'idea'] as const
+export const FEEDBACK_STATUSES = ['open', 'planned', 'done', 'wontfix'] as const
+
+export type FeedbackKind = (typeof FEEDBACK_KINDS)[number]
+export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number]
+
+export interface Feedback {
+  id: string
+  kind: FeedbackKind
+  title: string
+  detail: string
+  pitfallId: string | null
+  sourceProject: string
+  sourceAgent: string
+  status: FeedbackStatus
+  /** How many times this was reported; duplicates add a vote instead of a new row. */
+  votes: number
+  resolution: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface FeedbackInput {
+  kind: FeedbackKind
+  title: string
+  detail?: string
+  pitfallId?: string
+  sourceProject?: string
+  sourceAgent?: string
+}

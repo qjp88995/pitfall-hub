@@ -4,6 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { formatErrorMatches, formatFull, formatSearch, oneLine } from '../core/format.js'
 import { isDistinctiveSignature, matchErrorOutput } from '../core/match.js'
+import { FEEDBACK_KINDS, FEEDBACK_STATUSES, FeedbackStore } from '../core/feedback.js'
 import type { PitfallStore } from '../core/store.js'
 import { SEVERITIES, STATUSES, type PitfallPatch } from '../core/types.js'
 
@@ -36,6 +37,7 @@ export interface McpOptions {
 export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
   const server = new McpServer({ name: 'pitfall-hub', version: '0.1.0' })
   const agent = () => server.server.getClientVersion()?.name ?? ''
+  const feedbackStore = new FeedbackStore(store.db)
 
   server.registerTool(
     'search_pitfalls',
@@ -141,16 +143,89 @@ export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
   server.registerTool(
     'pitfall_feedback',
     {
-      description: 'Report whether a pitfall helped. "outdated" hides it from searches and auto-surfacing (e.g. fixed upstream).',
-      inputSchema: { id: z.string(), kind: z.enum(['helpful', 'outdated']), note: z.string().optional() },
+      description:
+        'Report how a surfaced/found pitfall turned out. helpful: it applied. outdated: no longer true (hidden from search and auto-surfacing). irrelevant: it was surfaced or ranked high but has nothing to do with the problem — this is logged as a false positive to tune matching; say in `note` what the actual error/query was.',
+      inputSchema: { id: z.string(), kind: z.enum(['helpful', 'outdated', 'irrelevant']), note: z.string().optional(), project: fields.project },
     },
-    async ({ id, kind, note }) => {
-      let p = store.feedback(id, kind)
-      if (!p) return text(`No pitfall ${id}`, true)
+    async ({ id, kind, note, project }) => {
+      const current = store.get(id)
+      if (!current) return text(`No pitfall ${id}`, true)
+      if (kind === 'irrelevant') {
+        const { feedback, duplicate } = feedbackStore.report({
+          kind: 'false_positive',
+          title: `Irrelevant match: ${current.title}`,
+          detail: note,
+          pitfallId: id,
+          sourceProject: project ?? opts.defaultProject ?? '',
+          sourceAgent: agent(),
+        })
+        return text(`Logged false positive ${feedback.id}${duplicate ? ` (reported ${feedback.votes}x)` : ''} for ${id}.`)
+      }
+      let p = store.feedback(id, kind)!
       if (note) {
         p = store.update(id, { solution: `${p.solution}\n\n**${new Date().toISOString().slice(0, 10)} ${kind}**: ${note}` })!
       }
       return text(`${kind === 'helpful' ? 'Marked helpful' : 'Marked outdated'}: ${p.id}`)
+    },
+  )
+
+  server.registerTool(
+    'report_platform_issue',
+    {
+      description:
+        'Report a problem with pitfall-hub itself, noticed while using it in any project: a pitfall that existed but was not surfaced or found (missed), a bug, or a missing capability / awkward output (idea). For an unrelated surfaced pitfall use pitfall_feedback kind=irrelevant instead. Reports are private to this platform; repeats of an open report add a vote. Describe the problem generically: no secrets, no proprietary code, only the error text needed to reproduce.',
+      inputSchema: {
+        kind: z.enum(FEEDBACK_KINDS),
+        title: z.string().describe('The problem in one line, e.g. "search misses entries when query uses a synonym"'),
+        detail: z.string().optional().describe('What you did, what you expected, what happened (exact query / error text helps)'),
+        pitfall_id: z.string().optional().describe('Related pitfall, if any'),
+        project: fields.project,
+      },
+    },
+    async ({ kind, title, detail, pitfall_id, project }) => {
+      const { feedback, duplicate } = feedbackStore.report({
+        kind,
+        title,
+        detail,
+        pitfallId: pitfall_id,
+        sourceProject: project ?? opts.defaultProject ?? '',
+        sourceAgent: agent(),
+      })
+      return text(duplicate ? `Already reported as ${feedback.id}; added a vote (${feedback.votes}x).` : `Reported ${feedback.id}. Thanks.`)
+    },
+  )
+
+  server.registerTool(
+    'list_platform_issues',
+    {
+      description: 'Open reports about pitfall-hub itself, most-reported first. Use when working on the pitfall-hub codebase.',
+      inputSchema: { status: z.array(z.enum(FEEDBACK_STATUSES)).optional().describe('Default: open + planned'), limit: z.number().int().min(1).max(100).optional() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ status, limit }) => {
+      const { items, total } = feedbackStore.list({ status, limit })
+      if (!items.length) return text('No platform issues.')
+      return text(
+        [
+          `${total} platform issue(s):`,
+          ...items.map(
+            (f) =>
+              `- ${f.id} [${f.kind}] [${f.status}] ${f.votes}x ${f.title}${f.pitfallId ? ` (pitfall ${f.pitfallId})` : ''}${f.detail ? `\n    ${f.detail.replace(/\n/g, '\n    ')}` : ''}`,
+          ),
+        ].join('\n'),
+      )
+    },
+  )
+
+  server.registerTool(
+    'resolve_platform_issue',
+    {
+      description: 'Update a platform issue after acting on it.',
+      inputSchema: { id: z.string(), status: z.enum(FEEDBACK_STATUSES), resolution: z.string().optional().describe('What was done, e.g. commit hash') },
+    },
+    async ({ id, status, resolution }) => {
+      const f = feedbackStore.resolve(id, status, resolution)
+      return f ? text(`${f.id} → ${f.status}`) : text(`No platform issue ${id}`, true)
     },
   )
 

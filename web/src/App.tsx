@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useState } from 'react'
-import { api, setToken, UnauthorizedError, type Pitfall, type SearchResult, type Stats } from './api'
+import { api, feedbackApi, setToken, UnauthorizedError, type Pitfall, type SearchResult, type Stats } from './api'
+import { FeedbackPanel } from './FeedbackPanel'
 import { PitfallEditor } from './PitfallEditor'
 import { PitfallView } from './PitfallView'
 
@@ -23,6 +24,8 @@ export function App() {
   const [error, setError] = useState('')
   const [locked, setLocked] = useState(false)
   const [authVersion, setAuthVersion] = useState(0)
+  const [view, setView] = useState<'pitfalls' | 'feedback'>('pitfalls')
+  const [openFeedback, setOpenFeedback] = useState(0)
   const deferredQ = useDeferredValue(q)
 
   const refresh = useCallback(() => {
@@ -30,6 +33,7 @@ export function App() {
     api.search({ q: deferredQ, tags, status }).then(setResult, onError)
     api.tags().then(setAllTags, () => {})
     api.stats().then(setStats, () => {})
+    feedbackApi.list('open,planned').then((r) => setOpenFeedback(r.total), () => {})
   }, [deferredQ, tags, status, authVersion])
 
   useEffect(refresh, [refresh])
@@ -62,6 +66,22 @@ export function App() {
             pitfall<span className="text-accent">/</span>hub
           </h1>
           <p className="text-sm text-muted">Agent 在各个项目里踩过、并已解决的坑</p>
+          <nav className="mt-3 flex gap-4 text-sm">
+            {(
+              [
+                ['pitfalls', '坑'],
+                ['feedback', `平台反馈${openFeedback ? ` ${openFeedback}` : ''}`],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setView(key)}
+                className={`border-b-2 pb-0.5 ${view === key ? 'border-accent text-ink' : 'border-transparent text-muted hover:text-ink'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
         </div>
         <div className="flex items-center gap-5">
           {stats && (
@@ -87,7 +107,17 @@ export function App() {
         </p>
       )}
 
-      <div className="grid flex-1 gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+      {view === 'feedback' && (
+        <FeedbackPanel
+          onOpenPitfall={(id) => {
+            setView('pitfalls')
+            setStatus('all')
+            setPanel({ mode: 'view', id })
+          }}
+        />
+      )}
+
+      <div className={`grid flex-1 gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] ${view === 'pitfalls' ? '' : 'hidden'}`}>
         <section className="flex min-w-0 flex-col gap-3">
           <input
             value={q}

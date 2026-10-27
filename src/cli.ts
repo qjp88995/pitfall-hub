@@ -22,7 +22,7 @@ Usage:
   pitfall mcp                          MCP server over stdio
   pitfall hook <event>                 Claude Code hook handler (reads stdin)
                                        data source: PITFALL_HUB_DOCKER=<container> | PITFALL_HUB_URL=<url> | local DB
-  pitfall rpc relevant|match           JSON stdin → JSON stdout (used by hooks via docker exec)
+  pitfall rpc relevant|match|issues    JSON stdin → JSON stdout (used by hooks via docker exec)
   pitfall install [--docker C | --url U [--token T]]
                                        register MCP server, skill and hooks in ~/.claude
                                        --docker: data lives in container C, reached via docker exec
@@ -156,6 +156,10 @@ export async function main(argv: string[]) {
       // JSON in, JSON out; the transport for hooks running outside the container (docker exec).
       const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string }
       if (positionals[0] === 'relevant') return console.log(JSON.stringify(store.relevantForTags(body.tags ?? [], body.limit)))
+      if (positionals[0] === 'issues') {
+        const { FeedbackStore } = await import('./core/feedback.js')
+        return console.log(JSON.stringify(new FeedbackStore(store.db).list({ limit: body.limit })))
+      }
       if (positionals[0] === 'match') {
         const { matchErrorOutput } = await import('./core/match.js')
         return console.log(JSON.stringify(matchErrorOutput(store, body.output ?? '')))
