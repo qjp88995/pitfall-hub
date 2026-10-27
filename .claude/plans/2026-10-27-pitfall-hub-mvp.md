@@ -20,3 +20,12 @@ Goal: one local knowledge base of pitfalls that every agent on this machine can 
 
 ## Out of scope (later)
 - Team/server mode with auth, embeddings/semantic search, auto-capture of failures without agent judgement.
+
+## Revision: Docker deployment (same day)
+- Runs in Docker (`docker-compose.yml`, conventions copied from scriptwright: ports only in the override file,
+  prod example under `docker/` pulling a prebuilt image behind Traefik).
+- The agent workspace is itself a fail-closed container behind Mihomo, so sibling containers are not reachable
+  over the network. Locally, agents reach pitfall-hub through `docker exec`:
+  MCP = `docker exec -i pitfall-hub pitfall mcp`, hooks = local fingerprint + `docker exec … pitfall rpc`.
+- Online: `/mcp` (Streamable HTTP) + `/api/*` behind bearer tokens (`PITFALL_HUB_TOKEN`); refuses to listen on a
+  non-loopback address without one. Agents switch with `pitfall install --url https://… --token …`.

@@ -41,7 +41,7 @@ body {
   & ul, & ol { @apply my-2 pl-5; }
   & ul { @apply list-disc; }
   & ol { @apply list-decimal; }
-  & code { @apply rounded bg-sunken px-1 py-0.5 font-mono text-xs; }
+  & code { @apply rounded bg-sunken px-1 py-0.5 font-mono text-xs; font-variant-ligatures: none; }
   & pre { @apply my-2 overflow-x-auto rounded-md bg-sunken p-3; }
   & pre code { @apply bg-transparent p-0; }
   & strong { @apply font-semibold; }
