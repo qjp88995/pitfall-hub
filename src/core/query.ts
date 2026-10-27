@@ -37,6 +37,21 @@ export function parseQuery(q: string): ParsedQuery {
   return { fts, short: [...short] }
 }
 
+/** CJK bigrams plus short latin terms, for the fuzzy fallback when no trigram matches. */
+export function fallbackTerms(q: string): string[] {
+  const out = new Set<string>()
+  for (const token of q.match(TOKEN) ?? []) {
+    const chars = [...token]
+    if (CJK_RUN.test(token)) {
+      if (chars.length === 1) continue
+      for (let i = 0; i + 2 <= chars.length; i++) out.add(chars.slice(i, i + 2).join(''))
+    } else if (chars.length >= 2) {
+      out.add(token.toLowerCase())
+    }
+  }
+  return [...out].slice(0, 32)
+}
+
 /** Strips the volatile parts of an error line so the same failure on another machine still matches. */
 export function normalizeSignature(s: string): string {
   return s

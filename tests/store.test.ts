@@ -97,3 +97,12 @@ describe('PitfallStore', () => {
     expect(other.importMany(dump)).toEqual({ created: 0, updated: 0, skipped: 2 })
   })
 })
+
+describe('fuzzy fallback', () => {
+  it('finds Chinese queries phrased differently, but not on a single shared word', () => {
+    const { sharp, wsl } = seed()
+    expect(store.search({ q: '原生模块安装编不过' }).items.map((i) => i.id)).toEqual([sharp.id])
+    expect(store.search({ q: 'vite 热更新失效了' }).items[0]?.id).toBe(wsl.id)
+    expect(store.search({ q: '数据库连接失败' }).total).toBe(0)
+  })
+})

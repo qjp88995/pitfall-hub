@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
-import { normalizeSignature, normalizeTags, parseQuery } from './query.js'
+import { fallbackTerms, normalizeSignature, normalizeTags, parseQuery } from './query.js'
 import {
   SEVERITIES,
   STATUSES,
@@ -145,6 +145,7 @@ export class PitfallStore {
       params.push(opts.project)
     }
 
+    const filters = { where: [...where], params: [...params] }
     const { fts, short } = parseQuery(opts.q ?? '')
     let from = 'pitfalls p'
     let score = 'NULL'
@@ -168,7 +169,36 @@ export class PitfallStore {
       .prepare(`SELECT p.*, ${score} AS score FROM ${from} ${whereSql} ORDER BY ${order} LIMIT ? OFFSET ?`)
       .all(...params, limit, offset) as unknown as Row[]
     const { n } = this.db.prepare(`SELECT count(*) AS n FROM ${from} ${whereSql}`).get(...params) as { n: number }
+    if (n === 0 && opts.q?.trim()) return this.fuzzySearch(opts.q, filters, limit, offset)
     return { items: rows.map(toHit), total: n }
+  }
+
+  /**
+   * Fallback when the trigram index finds nothing, mostly for Chinese phrased differently from
+   * the entry ("安装失败的模块" vs "模块安装报错"). Scores by the share of CJK bigrams / short
+   * terms present; requires real overlap so it does not return noise.
+   */
+  private fuzzySearch(q: string, filters: { where: string[]; params: SQLInputValue[] }, limit: number, offset: number): SearchResult {
+    const terms = fallbackTerms(q)
+    if (!terms.length) return { items: [], total: 0 }
+    const like = terms.map(() => `(${LIKE_FIELDS.map((f) => `p.${f} LIKE ?`).join(' OR ')})`).join(' OR ')
+    const where = [...filters.where, `(${like})`]
+    const rows = this.db
+      .prepare(`SELECT p.* FROM pitfalls p WHERE ${where.join(' AND ')}`)
+      .all(...filters.params, ...terms.flatMap((t) => LIKE_FIELDS.map(() => `%${t}%`))) as unknown as Row[]
+    const minHits = terms.length === 1 ? 1 : 2
+    const scored = rows
+      .map((r) => {
+        const hay = LIKE_FIELDS.map((f) => r[f as keyof Row]).join('\n').toLowerCase()
+        const hits = terms.filter((t) => hay.includes(t)).length
+        return { row: r, hits, ratio: hits / terms.length }
+      })
+      .filter((s) => s.hits >= minHits && s.ratio >= 1 / 3)
+      .sort((a, b) => b.ratio - a.ratio || b.row.helpful_count - a.row.helpful_count)
+    return {
+      items: scored.slice(offset, offset + limit).map((s) => ({ ...toPitfall(s.row), score: -s.ratio })),
+      total: scored.length,
+    }
   }
 
   /**
@@ -184,6 +214,12 @@ export class PitfallStore {
     return rows
       .filter((r) => r.title.trim().toLowerCase() === title || (sig && normalizeSignature(r.error_signature) === sig))
       .map(toPitfall)
+  }
+
+  withSignatures(): Pitfall[] {
+    return (
+      this.db.prepare("SELECT * FROM pitfalls WHERE status = 'active' AND error_signature != ''").all() as unknown as Row[]
+    ).map(toPitfall)
   }
 
   /** Active entries sharing tags with the given project fingerprint, best matches first. */
