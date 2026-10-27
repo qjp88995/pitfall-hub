@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { formatErrorMatches, formatFull, formatSearch, oneLine } from '../core/format.js'
-import { matchErrorOutput } from '../core/match.js'
+import { isDistinctiveSignature, matchErrorOutput } from '../core/match.js'
 import type { PitfallStore } from '../core/store.js'
 import { SEVERITIES, STATUSES, type PitfallPatch } from '../core/types.js'
 
@@ -101,8 +101,12 @@ export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
         .search({ q: input.title, limit: 4 })
         .items.filter((s) => s.id !== p.id)
         .slice(0, 3)
+      const weakSig =
+        error_signature && !isDistinctiveSignature(error_signature)
+          ? [`Note: error_signature "${error_signature}" is too generic once numbers/paths are stripped, so it will not be used for auto-matching. Update it with a more specific line if one exists.`]
+          : []
       return text(
-        [`Recorded ${p.id}: ${p.title}`, ...(similar.length ? ['Similar existing entries (merge if they are the same issue):', ...similar.map((s) => oneLine(s))] : [])].join('\n'),
+        [`Recorded ${p.id}: ${p.title}`, ...weakSig, ...(similar.length ? ['Similar existing entries (merge if they are the same issue):', ...similar.map((s) => oneLine(s))] : [])].join('\n'),
       )
     },
   )

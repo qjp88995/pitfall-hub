@@ -16,6 +16,20 @@ const STOP = new Set(
    internal process expected unexpected missing invalid https http www com`.split(/\s+/),
 )
 const MIN_SIGNATURE = 12
+const MIN_SIGNATURE_TOKENS = 2
+
+/**
+ * A signature is only trusted for exact matching if something specific survives normalization.
+ * "exit code 144" normalizes to "exit code <n>", which every failed command contains.
+ */
+export function isDistinctiveSignature(signature: string): boolean {
+  const sig = normalizeSignature(signature)
+  if (sig.length < MIN_SIGNATURE) return false
+  const tokens = sig
+    .replace(/<(?:path|n|hex)>/g, ' ')
+    .match(/[a-z_$][\w$.@-]{3,}|[\p{Script=Han}]{2,}/gu)
+  return new Set((tokens ?? []).filter((t) => !STOP.has(t))).size >= MIN_SIGNATURE_TOKENS
+}
 
 /**
  * Matches raw tool output (usually a failed command) against recorded pitfalls.
@@ -31,8 +45,8 @@ export function matchErrorOutput(store: PitfallStore, output: string, limit = 3)
   const seen = new Set<string>()
 
   for (const p of store.withSignatures()) {
-    const sig = normalizeSignature(p.errorSignature)
-    if (sig.length >= MIN_SIGNATURE && normalized.includes(sig)) {
+    if (!isDistinctiveSignature(p.errorSignature)) continue
+    if (normalized.includes(normalizeSignature(p.errorSignature))) {
       results.push({ pitfall: p, reason: 'signature', matched: [p.errorSignature] })
       seen.add(p.id)
     }

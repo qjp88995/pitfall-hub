@@ -126,3 +126,13 @@ describe('HTTP auth', () => {
     expect(body.result.content[0]!.text).toContain('docker buildx cache mount ignored')
   })
 })
+
+describe('signature precision', () => {
+  it('ignores signatures that become generic after normalization', async () => {
+    const { isDistinctiveSignature } = await import('../src/core/match.js')
+    expect(isDistinctiveSignature('exit code 144')).toBe(false)
+    expect(isDistinctiveSignature('Could not load the "sharp" module using the linux-x64 runtime')).toBe(true)
+    store.create({ title: 'pkill self-kill', solution: 'x', errorSignature: 'exit code 144' })
+    expect(matchErrorOutput(store, 'Exit code 1\nls: cannot access foo')).toEqual([])
+  })
+})
