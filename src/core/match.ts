@@ -89,3 +89,44 @@ export function distinctiveTokens(output: string, max = 12): string[] {
     .slice(0, max)
     .map(([t]) => t)
 }
+
+const SIMILAR_MIN_SHARED = 3
+const SIMILAR_MIN_OVERLAP = 0.3
+
+/**
+ * Existing entries that probably describe the same problem as `p`, shown after record_pitfall
+ * so the agent can merge them. Shared tags or a shared word are not enough ("traefik" links a TLS
+ * pitfall to an MCP one): the titles+symptoms must share several content terms, covering a good
+ * part of the shorter one.
+ */
+export function similarEntries(store: PitfallStore, p: Pitfall, limit = 3): Pitfall[] {
+  const mine = contentTerms(p)
+  if (mine.size < SIMILAR_MIN_SHARED) return []
+  const { items } = store.search({ q: `${p.title} ${p.symptom}`, limit: 20 })
+  return items
+    .filter((s) => s.id !== p.id)
+    .map((s) => {
+      const theirs = contentTerms(s)
+      const shared = [...mine].filter((t) => theirs.has(t)).length
+      return { s, shared, overlap: shared / Math.min(mine.size, theirs.size) }
+    })
+    .filter((x) => x.shared >= SIMILAR_MIN_SHARED && x.overlap >= SIMILAR_MIN_OVERLAP)
+    .sort((a, b) => b.overlap - a.overlap)
+    .slice(0, limit)
+    .map((x) => x.s)
+}
+
+/** Latin words/identifiers (no generic words) and CJK bigrams from title, symptom and signature. */
+function contentTerms(p: Pick<Pitfall, 'title' | 'symptom' | 'errorSignature'>): Set<string> {
+  const out = new Set<string>()
+  for (const raw of `${p.title}\n${p.symptom}\n${p.errorSignature}`.toLowerCase().match(/[a-z_$@][\w$.@/-]{2,}|[\p{Script=Han}]{2,}/gu) ?? []) {
+    if (/^\p{Script=Han}/u.test(raw)) {
+      const chars = [...raw]
+      for (let i = 0; i + 2 <= chars.length; i++) out.add(chars.slice(i, i + 2).join(''))
+    } else {
+      const t = raw.replace(/[./-]+$/, '')
+      if (t.length >= 3 && !STOP.has(t)) out.add(t)
+    }
+  }
+  return out
+}

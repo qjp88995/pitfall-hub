@@ -47,6 +47,30 @@ describe('MCP server', () => {
     return call
   }
 
+  it('lists similar entries after recording only when the content overlaps, not just a tag or word', async () => {
+    const call = await connect()
+    await call('record_pitfall', {
+      title: '无状态 MCP Streamable HTTP 的 GET /mcp 返回永不结束的 SSE 流，挂住反代连接',
+      symptom: 'curl GET /mcp 一直不返回，Traefik 连接堆积',
+      solution: 'GET 返回 405',
+      tags: ['mcp', 'traefik'],
+    })
+    const cert = await call('record_pitfall', {
+      title: 'Traefik 新上线的域名头几秒返回自签名默认证书，curl 报 self-signed certificate',
+      solution: '等几十秒再试',
+      tags: ['traefik', 'tls'],
+    })
+    expect(cert).not.toContain('Similar existing entries')
+    const certId = /Recorded (\S+):/.exec(cert)![1]!
+    const again = await call('record_pitfall', {
+      title: 'Traefik 刚加的域名 TLS 证书是 TRAEFIK DEFAULT CERT 自签名',
+      symptom: 'curl 报 self-signed certificate，几十秒后恢复',
+      solution: 'x',
+    })
+    expect(again).toContain('Similar existing entries')
+    expect(again).toContain(certId)
+  })
+
   it('records, refuses duplicates, appends notes and searches', async () => {
     const call = await connect()
     const rec = await call('record_pitfall', {

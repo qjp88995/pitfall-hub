@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 import { formatErrorMatches, formatFull, formatSearch, oneLine } from '../core/format.js'
-import { isDistinctiveSignature, matchErrorOutput } from '../core/match.js'
+import { isDistinctiveSignature, matchErrorOutput, similarEntries } from '../core/match.js'
 import { FEEDBACK_KINDS, FEEDBACK_STATUSES, FeedbackStore } from '../core/feedback.js'
 import type { PitfallStore } from '../core/store.js'
 import { SEVERITIES, STATUSES, type PitfallPatch } from '../core/types.js'
@@ -101,10 +101,7 @@ export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
         }
       }
       const p = store.create({ ...input, errorSignature: error_signature, sourceProject: project ?? opts.defaultProject ?? '', sourceAgent: agent() })
-      const similar = store
-        .search({ q: input.title, limit: 4 })
-        .items.filter((s) => s.id !== p.id)
-        .slice(0, 3)
+      const similar = similarEntries(store, p)
       const weakSig =
         error_signature && !isDistinctiveSignature(error_signature)
           ? [`Note: error_signature "${error_signature}" is too generic once numbers/paths are stripped, so it will not be used for auto-matching. Update it with a more specific line if one exists.`]
