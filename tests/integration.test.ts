@@ -111,6 +111,7 @@ describe('HTTP auth', () => {
     expect((await app.request('/api/stats', { headers: { authorization: 'Bearer wrong' } })).status).toBe(401)
     expect((await app.request('/api/stats', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200)
     expect((await app.request('/mcp', { method: 'POST', body: '{}' })).status).toBe(401)
+    expect((await app.request('/mcp', { headers: { authorization: `Bearer ${token}` } })).status).toBe(405)
   })
 
   it('serves MCP over HTTP with a valid token', async () => {

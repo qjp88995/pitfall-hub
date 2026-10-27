@@ -40,7 +40,10 @@ export function createApp(store: PitfallStore, opts: AppOptions = {}) {
   }
 
   // MCP over Streamable HTTP, stateless: a fresh server per request, all state lives in SQLite.
-  app.all('/mcp', async (c) => {
+  // No server-initiated stream, so GET/DELETE get 405 (allowed by the spec) instead of an SSE
+  // response that never ends and pins a connection at the proxy.
+  app.on(['GET', 'DELETE'], '/mcp', (c) => c.body(null, 405, { allow: 'POST' }))
+  app.post('/mcp', async (c) => {
     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     await createMcpServer(store).connect(transport)
     return transport.handleRequest(c.req.raw)
