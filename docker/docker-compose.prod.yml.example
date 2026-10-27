@@ -3,9 +3,12 @@
 # 用法：
 #   1. 复制到部署机（建议 /opt/pitfall-hub/docker-compose.yml），同目录准备 .env
 #   2. docker compose pull && docker compose up -d
-#   3. 本机 agent 接入：
-#        pitfall install --url https://<域名> --token <PITFALL_HUB_TOKEN>
-#      会以 http transport + Authorization 头注册 MCP，并让 hooks 走同一地址。
+#   3. 本机 agent 接入（二选一）：
+#      - 经本地 Docker 客户端容器（网络受限的工作区推荐；token 不进 agent 配置）：
+#          仓库根 .env 填 PITFALL_HUB_URL / PITFALL_HUB_TOKEN，
+#          docker compose -f docker-compose.client.yml up -d --build
+#          pitfall install --docker pitfall-hub-client
+#      - 直连：pitfall install --url https://<域名> --token <PITFALL_HUB_TOKEN>
 #
 # 镜像来自 GitHub Actions：ghcr.io/qjp88995/pitfall-hub
 #   :staging / :sha-xxxxxxx —— 每次 push main 自动构建（docker-staging.yml，先过 typecheck + test）
