@@ -2,6 +2,12 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
+/**
+ * Tags describing the machine / agent setup rather than the project's stack. Every project on
+ * the machine carries them, so matching only on these says nothing about this project.
+ */
+export const ENVIRONMENT_TAGS = new Set(['linux', 'wsl', 'macos', 'windows', 'claude-code'])
+
 export interface ProjectFingerprint {
   name: string
   root: string

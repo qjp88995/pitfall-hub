@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { defaultDbPath } from '../core/db.js'
-import { fingerprint } from '../core/fingerprint.js'
+import { ENVIRONMENT_TAGS, fingerprint } from '../core/fingerprint.js'
 import { formatErrorMatches, oneLine } from '../core/format.js'
 import { matchErrorOutput, type ErrorMatch } from '../core/match.js'
 import type { PitfallStore } from '../core/store.js'
@@ -31,7 +31,7 @@ interface SessionState {
 
 /** Where hooks get their data: the local database, or a pitfall-hub server (e.g. the Docker container). */
 export interface HookBackend {
-  relevant(tags: string[], limit: number): Promise<{ items: Pitfall[]; total: number }>
+  relevant(tags: string[], limit: number): Promise<{ items: (Pitfall & { matchedTags: string[] })[]; total: number }>
   match(output: string): Promise<ErrorMatch[]>
   openIssues(limit: number): Promise<{ items: Feedback[]; total: number }>
 }
@@ -81,7 +81,11 @@ export function dockerBackend(container: string, timeoutMs = 5000): HookBackend 
   }
 }
 
-const SESSION_START_LIMIT = 6
+const STACK_LIMIT = 6
+const ENVIRONMENT_LIMIT = 2
+
+// Always shown, so the platform is known in every project even when nothing matches yet.
+const PRESENCE = `[pitfall-hub] Cross-project pitfall knowledge base (MCP server "pitfall-hub", skill "pitfall-hub"). Before a second debugging attempt: search_pitfalls / match_error. After a non-obvious fix that would recur elsewhere: record_pitfall. When it surfaces something unrelated or misses something: pitfall_feedback irrelevant / report_platform_issue.`
 const NUDGE_AFTER_FAILURES = 3
 
 export async function handleHook(event: string, input: HookInput, backend: HookBackend): Promise<object | null> {
@@ -103,15 +107,34 @@ export async function handleHook(event: string, input: HookInput, backend: HookB
 async function sessionStart(input: HookInput, backend: HookBackend) {
   pruneSessions()
   const fp = fingerprint(input.cwd || process.cwd())
-  const [{ items, total }, issues] = await Promise.all([
-    backend.relevant(fp.tags, SESSION_START_LIMIT),
-    fp.name === PLATFORM_PROJECT ? backend.openIssues(10) : null,
-  ])
-  const lines: string[] = []
-  if (items.length) {
+  let items: (Pitfall & { matchedTags: string[] })[] = []
+  let issues: { items: Feedback[]; total: number } | null = null
+  let unreachable = ''
+  try {
+    ;[{ items }, issues] = await Promise.all([
+      backend.relevant(fp.tags, 50),
+      fp.name === PLATFORM_PROJECT ? backend.openIssues(10) : null,
+    ])
+  } catch (err) {
+    // The announcement must survive an unreachable server; only the data is missing.
+    unreachable = `(The knowledge base is unreachable right now: ${(err as Error).message}. Its tools will fail until it is back.)`
+  }
+  const isEnvOnly = (p: { matchedTags: string[] }) => p.matchedTags.every((t) => ENVIRONMENT_TAGS.has(t))
+  const stack = items.filter((p) => !isEnvOnly(p))
+  const env = items.filter(isEnvOnly)
+
+  const lines = [PRESENCE]
+  if (unreachable) lines.push(unreachable)
+  if (stack.length) {
     lines.push(
-      `[pitfall-hub] ${total} known pitfall(s) relevant to this project's stack${total > items.length ? `, top ${items.length}` : ''}. Keep them in mind; get_pitfall <id> for details, search_pitfalls for more.`,
-      ...items.map((p) => oneLine(p)),
+      `Known pitfalls for this project's stack (${stack.length}${stack.length > STACK_LIMIT ? `, top ${STACK_LIMIT}` : ''}; get_pitfall <id> for details):`,
+      ...stack.slice(0, STACK_LIMIT).map((p) => oneLine(p)),
+    )
+  }
+  if (env.length) {
+    lines.push(
+      `Known pitfalls for this machine / agent environment (${env.length}${env.length > ENVIRONMENT_LIMIT ? `, top ${ENVIRONMENT_LIMIT}` : ''}):`,
+      ...env.slice(0, ENVIRONMENT_LIMIT).map((p) => oneLine(p)),
     )
   }
   if (issues?.items.length) {
@@ -120,7 +143,6 @@ async function sessionStart(input: HookInput, backend: HookBackend) {
       ...issues.items.map((f) => `- ${f.id} [${f.kind}] ${f.votes}x ${f.title}`),
     )
   }
-  if (!lines.length) return null
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: lines.join('\n') } }
 }
 

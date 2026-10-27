@@ -193,6 +193,25 @@ describe('platform feedback', () => {
     }
     const atHub = (await handleHook('session-start', { cwd: hub }, localBackend(store))) as { hookSpecificOutput: { additionalContext: string } }
     expect(atHub.hookSpecificOutput.additionalContext).toContain('match_error crashes on empty output')
-    expect(await handleHook('session-start', { cwd: other }, localBackend(store))).toBeNull()
+    const atOther = (await handleHook('session-start', { cwd: other }, localBackend(store))) as { hookSpecificOutput: { additionalContext: string } }
+    expect(atOther.hookSpecificOutput.additionalContext).toContain('Cross-project pitfall knowledge base')
+    expect(atOther.hookSpecificOutput.additionalContext).not.toContain('match_error crashes')
+  })
+
+  it('keeps environment-only matches apart from stack matches', async () => {
+    const { handleHook, localBackend } = await import('../src/hooks/claude.js')
+    store.create({ title: 'vite HMR broken on /mnt', solution: 'usePolling', tags: ['vite', 'wsl'] })
+    store.create({ title: 'pkill -f kills its own shell', solution: 'x', tags: ['linux', 'bash'] })
+    store.create({ title: 'claude mcp add --header swallows args', solution: 'x', tags: ['claude-code', 'mcp'] })
+    store.create({ title: 'sandbox container DNS', solution: 'x', tags: ['wsl', 'claude-code'] })
+    const dir = mkdtempSync(join(tmpdir(), 'x-'))
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ devDependencies: { vite: '6' } }))
+    mkdirSync(join(dir, '.claude'))
+    const out = ((await handleHook('session-start', { cwd: dir }, localBackend(store))) as { hookSpecificOutput: { additionalContext: string } })
+      .hookSpecificOutput.additionalContext
+    const [, stack = '', env = ''] = out.split(/Known pitfalls for this project's stack|Known pitfalls for this machine/)
+    expect(stack).toContain('vite HMR broken')
+    expect(stack).not.toContain('claude mcp add')
+    expect(env.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(2)
   })
 })
