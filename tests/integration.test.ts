@@ -136,3 +136,16 @@ describe('signature precision', () => {
     expect(matchErrorOutput(store, 'Exit code 1\nls: cannot access foo')).toEqual([])
   })
 })
+
+describe('term matching precision', () => {
+  it('does not match on a couple of common words', () => {
+    store.create({
+      title: 'Sibling container unreachable from sandboxed workspace',
+      symptom: 'curl http://pitfall-hub:4477 → Empty reply from server',
+      solution: 'use docker exec',
+    })
+    const tls = `curl: (60) SSL certificate problem: self-signed certificate
+curl failed to verify the legitimacy of the server and therefore could not establish a secure connection to it.`
+    expect(matchErrorOutput(store, tls)).toEqual([])
+  })
+})

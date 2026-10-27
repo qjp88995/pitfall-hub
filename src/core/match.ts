@@ -35,8 +35,8 @@ export function isDistinctiveSignature(signature: string): boolean {
  * Matches raw tool output (usually a failed command) against recorded pitfalls.
  * Built for precision: injecting a wrong pitfall into an agent's context is worse than none.
  *  1. signature: an entry's normalized error signature occurs verbatim in the normalized output.
- *  2. terms: distinctive tokens from the error lines (no generic words, no numbers) overlap
- *     the entry's title/symptom/signature at least twice and cover a quarter of the tokens.
+ *  2. terms: distinctive tokens from the error lines (no generic words, no numbers) overlap the
+ *     entry's title/symptom/signature: 3+ tokens covering a quarter, or 2+ covering half.
  */
 export function matchErrorOutput(store: PitfallStore, output: string, limit = 3): ErrorMatch[] {
   const text = output.length > 20_000 ? output.slice(0, 4_000) + '\n' + output.slice(-16_000) : output
@@ -59,7 +59,8 @@ export function matchErrorOutput(store: PitfallStore, output: string, limit = 3)
       if (seen.has(p.id)) continue
       const hay = `${p.title}\n${p.symptom}\n${p.errorSignature}`.toLowerCase()
       const matched = tokens.filter((t) => hay.includes(t))
-      if (matched.length >= 2 && matched.length / tokens.length >= 0.25) {
+      const ratio = matched.length / tokens.length
+      if ((matched.length >= 3 && ratio >= 0.25) || (matched.length >= 2 && ratio >= 0.5)) {
         results.push({ pitfall: p, reason: 'terms', matched })
       }
     }
