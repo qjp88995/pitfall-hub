@@ -1,0 +1,83 @@
+# pitfall-hub 生产环境 docker compose 样例。
+#
+# 用法：
+#   1. 复制到部署机（建议 /opt/pitfall-hub/docker-compose.yml），同目录准备 .env
+#   2. docker compose pull && docker compose up -d
+#   3. 本机 agent 接入：
+#        pitfall install --url https://<域名> --token <PITFALL_HUB_TOKEN>
+#      会以 http transport + Authorization 头注册 MCP，并让 hooks 走同一地址。
+#
+# 镜像：${IMAGE_REGISTRY}/${GHCR_OWNER}/pitfall-hub:${IMAGE_TAG}
+#   本地构建推送：docker build -f docker/Dockerfile -t <registry>/<owner>/pitfall-hub:<tag> . && docker push …
+#
+# ─── 与本地 compose 的差异 ───────────────────────────────────────────────
+#   * 拉预构建镜像，不在部署机上 build
+#   * PITFALL_HUB_TOKEN 必填：/api/* 与 /mcp 要求 `Authorization: Bearer <token>`，
+#     Web UI 首次打开会要求输入。可填多个（逗号分隔），便于轮换：先加新的、各端
+#     切过去、再删旧的。每个至少 24 字符。
+#   * 不设 PITFALL_HUB_ALLOW_NO_AUTH —— 没有 token 时服务拒绝在 0.0.0.0 上启动
+#
+# ─── TLS ─────────────────────────────────────────────────────────────────
+# token 走请求头，必须上 HTTPS。二选一：
+#   (a) 给 traefik 加 ACME（certificatesresolvers.le.acme.*）+ :443 entrypoint，
+#       router 的 entrypoints 改成 websecure
+#   (b) 前置云 LB / Cloudflare 终止 TLS，回源打这台机的 :80
+# 已经有 scriptwright 那套 traefik 的机器，可以去掉下面的 traefik 服务，把
+# pitfall-hub 挂到那张网络上、改 traefik.docker.network 并按 Host() 路由。
+#
+# ─── 备份 ────────────────────────────────────────────────────────────────
+# 数据是 /data 下的单个 SQLite 文件（WAL 模式）。在线导出：
+#   docker compose exec pitfall-hub pitfall export > pitfalls-$(date +%F).json
+# 恢复 / 从本地迁移：
+#   docker compose exec -T pitfall-hub pitfall import - < pitfalls.json
+#
+# ─── 环境变量（.env）─────────────────────────────────────────────────────
+#   GHCR_OWNER=<镜像 namespace>
+#   IMAGE_TAG=latest
+#   PITFALL_HUB_TOKEN=<openssl rand -base64 32>
+#   PITFALL_HUB_HOST=<对外域名>              # traefik Host() 规则
+#   HTTP_PORT=80
+
+name: pitfall-hub
+
+services:
+  traefik:
+    image: traefik:latest
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=pitfall-hub_internal
+      - --providers.docker.constraints=Label(`com.docker.compose.project`,`pitfall-hub`)
+      - --entrypoints.web.address=:80
+      - --log.level=INFO
+    ports:
+      - '${HTTP_PORT:-80}:80'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - internal
+
+  pitfall-hub:
+    image: ${IMAGE_REGISTRY:-ghcr.io}/${GHCR_OWNER:?GHCR_OWNER required}/pitfall-hub:${IMAGE_TAG:-latest}
+    container_name: pitfall-hub
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PITFALL_HUB_TOKEN: ${PITFALL_HUB_TOKEN:?PITFALL_HUB_TOKEN required}
+    volumes:
+      - pitfall-data:/data
+    networks:
+      - internal
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=pitfall-hub_internal
+      - traefik.http.routers.pitfall-hub.rule=Host(`${PITFALL_HUB_HOST:?PITFALL_HUB_HOST required}`)
+      - traefik.http.routers.pitfall-hub.entrypoints=web
+      - traefik.http.services.pitfall-hub.loadbalancer.server.port=4477
+
+volumes:
+  pitfall-data:
+
+networks:
+  internal:

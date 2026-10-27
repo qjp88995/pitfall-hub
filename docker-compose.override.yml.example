@@ -1,0 +1,6 @@
+# Copy to docker-compose.override.yml to open the Web UI in a browser.
+# Loopback only: without PITFALL_HUB_TOKEN the API has no auth.
+services:
+  pitfall-hub:
+    ports:
+      - '127.0.0.1:${PITFALL_HUB_PORT:-4477}:4477'

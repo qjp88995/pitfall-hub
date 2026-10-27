@@ -46,6 +46,7 @@ How to write a good entry:
   Tags decide which projects get the entry at session start. Reuse existing tags
   (\`list_pitfall_tags\`).
 - **environment**: versions and OS it was seen on.
+- **project**: the current project's directory name.
 - Write in the user's language; keep error text and identifiers verbatim.
 
 \`record_pitfall\` refuses exact duplicates and returns the existing entry — then use

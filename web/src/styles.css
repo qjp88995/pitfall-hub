@@ -1,0 +1,49 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  --color-bg: #f6f5f1;
+  --color-surface: #ffffff;
+  --color-sunken: #efede6;
+  --color-line: #e2dfd6;
+  --color-ink: #1d1c19;
+  --color-muted: #6f6c63;
+  --color-accent: #c2410c;
+  --color-accent-soft: #fdeee4;
+  --color-ok: #15803d;
+  --color-warn: #a16207;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #141412;
+    --color-surface: #1c1b19;
+    --color-sunken: #23221f;
+    --color-line: #34322d;
+    --color-ink: #ecebe6;
+    --color-muted: #9b988e;
+    --color-accent: #fb923c;
+    --color-accent-soft: #3a2416;
+    --color-ok: #4ade80;
+    --color-warn: #facc15;
+  }
+}
+
+body {
+  @apply bg-bg text-ink font-sans antialiased;
+}
+
+.prose-pitfall {
+  @apply text-sm leading-relaxed;
+  & p { @apply my-2; }
+  & ul, & ol { @apply my-2 pl-5; }
+  & ul { @apply list-disc; }
+  & ol { @apply list-decimal; }
+  & code { @apply rounded bg-sunken px-1 py-0.5 font-mono text-xs; }
+  & pre { @apply my-2 overflow-x-auto rounded-md bg-sunken p-3; }
+  & pre code { @apply bg-transparent p-0; }
+  & strong { @apply font-semibold; }
+  & a { @apply text-accent underline; }
+}

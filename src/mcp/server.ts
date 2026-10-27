@@ -25,11 +25,16 @@ const fields = {
     .optional()
     .describe('The single most distinctive error line, verbatim. Used to auto-match future failures, so avoid generic lines.'),
   severity: z.enum(SEVERITIES).optional().describe('high = cost a lot of time or causes silent breakage'),
+  project: z.string().optional().describe('Name of the project you are working in (its directory name)'),
 }
 
-export function createMcpServer(store: PitfallStore) {
+export interface McpOptions {
+  /** Used when the agent does not pass `project`. Only meaningful for stdio, where cwd is the agent's. */
+  defaultProject?: string
+}
+
+export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
   const server = new McpServer({ name: 'pitfall-hub', version: '0.1.0' })
-  const project = basename(process.env.CLAUDE_PROJECT_DIR || process.cwd())
   const agent = () => server.server.getClientVersion()?.name ?? ''
 
   server.registerTool(
@@ -82,7 +87,7 @@ export function createMcpServer(store: PitfallStore) {
         'Record a pitfall after solving it, so it is not hit again in other projects. Worth recording: non-obvious fixes that took more than one attempt and would recur elsewhere (tool/library/platform behaviour, version incompatibilities, misleading errors). Not worth it: typos, project-specific business logic, things documented on the first search result. Refuses exact duplicates and returns the existing entry; then use update_pitfall.',
       inputSchema: { ...fields, force: z.boolean().optional().describe('Record even if a duplicate exists') },
     },
-    async ({ error_signature, force, ...input }) => {
+    async ({ error_signature, force, project, ...input }) => {
       if (!force) {
         const dupes = store.findDuplicates({ title: input.title, errorSignature: error_signature })
         if (dupes.length) {
@@ -91,7 +96,7 @@ export function createMcpServer(store: PitfallStore) {
           )
         }
       }
-      const p = store.create({ ...input, errorSignature: error_signature, sourceProject: project, sourceAgent: agent() })
+      const p = store.create({ ...input, errorSignature: error_signature, sourceProject: project ?? opts.defaultProject ?? '', sourceAgent: agent() })
       const similar = store
         .search({ q: input.title, limit: 4 })
         .items.filter((s) => s.id !== p.id)
@@ -116,13 +121,13 @@ export function createMcpServer(store: PitfallStore) {
         status: z.enum(STATUSES).optional(),
       },
     },
-    async ({ id, append_note, error_signature, ...rest }) => {
+    async ({ id, append_note, error_signature, project, ...rest }) => {
       const current = store.get(id)
       if (!current) return text(`No pitfall ${id}`, true)
       const patch: PitfallPatch = { ...rest, ...(error_signature !== undefined && { errorSignature: error_signature }) }
       if (append_note) {
         const base = patch.solution ?? current.solution
-        patch.solution = `${base}\n\n**${new Date().toISOString().slice(0, 10)} (${project})**: ${append_note}`
+        patch.solution = `${base}\n\n**${new Date().toISOString().slice(0, 10)}${project ? ` (${project})` : ''}**: ${append_note}`
       }
       const p = store.update(id, patch)!
       return text(`Updated ${p.id}: ${p.title}`)
@@ -155,5 +160,6 @@ export function createMcpServer(store: PitfallStore) {
 }
 
 export async function runMcpServer(store: PitfallStore) {
-  await createMcpServer(store).connect(new StdioServerTransport())
+  const defaultProject = process.env.PITFALL_PROJECT || basename(process.env.CLAUDE_PROJECT_DIR || process.cwd())
+  await createMcpServer(store, { defaultProject }).connect(new StdioServerTransport())
 }

@@ -99,3 +99,30 @@ describe('install', () => {
     expect(after.hooks).toEqual({ PostToolUseFailure: [foreign] })
   })
 })
+
+describe('HTTP auth', () => {
+  const token = 'x'.repeat(32)
+
+  it('guards /api and /mcp but not health or the UI shell', async () => {
+    const { createApp } = await import('../src/http/server.js')
+    const app = createApp(store, { tokens: [token] })
+    expect((await app.request('/healthz')).status).toBe(200)
+    expect((await app.request('/api/stats')).status).toBe(401)
+    expect((await app.request('/api/stats', { headers: { authorization: 'Bearer wrong' } })).status).toBe(401)
+    expect((await app.request('/api/stats', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200)
+    expect((await app.request('/mcp', { method: 'POST', body: '{}' })).status).toBe(401)
+  })
+
+  it('serves MCP over HTTP with a valid token', async () => {
+    const { createApp } = await import('../src/http/server.js')
+    const app = createApp(store, { tokens: [token] })
+    store.create({ title: 'docker buildx cache mount ignored', solution: 'enable BuildKit' })
+    const res = await app.request('/mcp', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'search_pitfalls', arguments: { query: 'buildx' } } }),
+    })
+    const body = (await res.json()) as { result: { content: { text: string }[] } }
+    expect(body.result.content[0]!.text).toContain('docker buildx cache mount ignored')
+  })
+})

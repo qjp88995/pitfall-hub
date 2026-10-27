@@ -1,0 +1,26 @@
+# LOCAL compose file. Host port mapping lives only in docker-compose.override.yml
+# (copy the .example); agents in the workspace container reach the service with
+# `docker exec -i pitfall-hub pitfall mcp|rpc`, which needs no port at all.
+# Production: docker/docker-compose.prod.yml.example.
+name: ${COMPOSE_PROJECT_NAME:-pitfall-hub}
+
+services:
+  pitfall-hub:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: ${COMPOSE_PROJECT_NAME:-pitfall-hub}:latest
+    # Stable name: hooks and the MCP registration address the container by it.
+    container_name: ${COMPOSE_PROJECT_NAME:-pitfall-hub}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      # Optional locally; when set, the UI asks for it and /api + /mcp require it.
+      PITFALL_HUB_TOKEN: ${PITFALL_HUB_TOKEN:-}
+      # Only reachable through docker exec or the loopback port in the override.
+      PITFALL_HUB_ALLOW_NO_AUTH: '1'
+    volumes:
+      - pitfall-data:/data
+
+volumes:
+  pitfall-data:

@@ -2,3 +2,5 @@ node_modules
 dist
 *.db
 *.db-*
+.env
+docker-compose.override.yml

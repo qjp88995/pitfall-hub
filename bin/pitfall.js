@@ -8,4 +8,9 @@ process.emitWarning = (warning, ...args) => {
 }
 
 const { main } = await import('../dist/cli.js')
-await main(process.argv.slice(2))
+try {
+  await main(process.argv.slice(2))
+} catch (err) {
+  console.error(process.env.DEBUG ? err : `pitfall: ${err.message}`)
+  process.exitCode = 1
+}

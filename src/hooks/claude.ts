@@ -1,10 +1,12 @@
+import { execFile } from 'node:child_process'
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { defaultDbPath } from '../core/db.js'
 import { fingerprint } from '../core/fingerprint.js'
 import { formatErrorMatches, oneLine } from '../core/format.js'
-import { matchErrorOutput } from '../core/match.js'
+import { matchErrorOutput, type ErrorMatch } from '../core/match.js'
 import type { PitfallStore } from '../core/store.js'
+import type { Pitfall } from '../core/types.js'
 
 // Claude Code hook handlers. Each reads the hook JSON from stdin and returns the JSON to print
 // (or null for no output). They must stay fast and never throw into the agent's session.
@@ -26,15 +28,60 @@ interface SessionState {
   nudged: boolean
 }
 
+/** Where hooks get their data: the local database, or a pitfall-hub server (e.g. the Docker container). */
+export interface HookBackend {
+  relevant(tags: string[], limit: number): Promise<{ items: Pitfall[]; total: number }>
+  match(output: string): Promise<ErrorMatch[]>
+}
+
+export function localBackend(store: PitfallStore): HookBackend {
+  return {
+    relevant: async (tags, limit) => store.relevantForTags(tags, limit),
+    match: async (output) => matchErrorOutput(store, output),
+  }
+}
+
+export function remoteBackend(baseUrl: string, token?: string, timeoutMs = 3000): HookBackend {
+  const post = async <T>(path: string, body: unknown): Promise<T> => {
+    const res = await fetch(new URL(path, baseUrl), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(token && { authorization: `Bearer ${token}` }) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`)
+    return (await res.json()) as T
+  }
+  return {
+    relevant: (tags, limit) => post('/api/relevant', { tags, limit }),
+    match: (output) => post('/api/match', { output }),
+  }
+}
+
+/** Talks to a pitfall-hub container through `docker exec`; no network path to it is needed. */
+export function dockerBackend(container: string, timeoutMs = 5000): HookBackend {
+  const rpc = <T>(method: string, body: unknown) =>
+    new Promise<T>((resolve, reject) => {
+      const child = execFile('docker', ['exec', '-i', container, 'pitfall', 'rpc', method], { timeout: timeoutMs }, (err, stdout) =>
+        err ? reject(err) : resolve(JSON.parse(stdout) as T),
+      )
+      child.stdin?.end(JSON.stringify(body))
+    })
+  return {
+    relevant: (tags, limit) => rpc('relevant', { tags, limit }),
+    match: (output) => rpc('match', { output }),
+  }
+}
+
 const SESSION_START_LIMIT = 6
 const NUDGE_AFTER_FAILURES = 3
 
-export function handleHook(event: string, input: HookInput, store: PitfallStore): object | null {
+export async function handleHook(event: string, input: HookInput, backend: HookBackend): Promise<object | null> {
   switch (event) {
     case 'session-start':
-      return sessionStart(input, store)
+      return sessionStart(input, backend)
     case 'tool-failure':
-      return toolFailure(input, store)
+      return toolFailure(input, backend)
     case 'recorded':
       updateSession(input.session_id, (s) => ({ ...s, recorded: true }))
       return null
@@ -45,10 +92,10 @@ export function handleHook(event: string, input: HookInput, store: PitfallStore)
   }
 }
 
-function sessionStart(input: HookInput, store: PitfallStore) {
+async function sessionStart(input: HookInput, backend: HookBackend) {
   pruneSessions()
   const fp = fingerprint(input.cwd || process.cwd())
-  const { items, total } = store.relevantForTags(fp.tags, SESSION_START_LIMIT)
+  const { items, total } = await backend.relevant(fp.tags, SESSION_START_LIMIT)
   if (!items.length) return null
   const lines = [
     `[pitfall-hub] ${total} known pitfall(s) relevant to this project's stack${total > items.length ? `, top ${items.length}` : ''}. Keep them in mind; get_pitfall <id> for details, search_pitfalls for more.`,
@@ -57,11 +104,11 @@ function sessionStart(input: HookInput, store: PitfallStore) {
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: lines.join('\n') } }
 }
 
-function toolFailure(input: HookInput, store: PitfallStore) {
+async function toolFailure(input: HookInput, backend: HookBackend) {
   updateSession(input.session_id, (s) => ({ ...s, failures: s.failures + 1 }))
   const output = collectText(input.error) + '\n' + collectText(input.tool_response)
   if (output.trim().length < 10) return null
-  const matches = matchErrorOutput(store, output)
+  const matches = await backend.match(output)
   if (!matches.length) return null
   return {
     hookSpecificOutput: { hookEventName: input.hook_event_name ?? 'PostToolUseFailure', additionalContext: formatErrorMatches(matches) },

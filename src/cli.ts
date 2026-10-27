@@ -18,10 +18,16 @@ Usage:
   pitfall export [file]                JSON dump (stdout by default)
   pitfall import <file>                upsert from a JSON dump
   pitfall stats
-  pitfall serve [--port 4477]          Web UI + JSON API
+  pitfall serve [--port 4477] [--host h] Web UI + JSON API (binds 127.0.0.1 by default)
   pitfall mcp                          MCP server over stdio
   pitfall hook <event>                 Claude Code hook handler (reads stdin)
-  pitfall install | uninstall          register MCP server, skill and hooks in ~/.claude
+                                       data source: PITFALL_HUB_DOCKER=<container> | PITFALL_HUB_URL=<url> | local DB
+  pitfall rpc relevant|match           JSON stdin → JSON stdout (used by hooks via docker exec)
+  pitfall install [--docker C | --url U [--token T]]
+                                       register MCP server, skill and hooks in ~/.claude
+                                       --docker: data lives in container C, reached via docker exec
+                                       --url: data lives on a pitfall-hub server (token: PITFALL_HUB_TOKEN)
+  pitfall uninstall
 
 Database: ${defaultDbPath()}  (override with PITFALL_HUB_DB)`
 
@@ -36,6 +42,10 @@ export async function main(argv: string[]) {
       limit: { type: 'string' },
       json: { type: 'boolean' },
       port: { type: 'string' },
+      host: { type: 'string' },
+      url: { type: 'string' },
+      docker: { type: 'string' },
+      token: { type: 'string' },
       title: { type: 'string' },
       solution: { type: 'string' },
       symptom: { type: 'string' },
@@ -52,7 +62,26 @@ export async function main(argv: string[]) {
 
   if (cmd === 'install' || cmd === 'uninstall') {
     const mod = await import('./install/claude.js')
-    return console.log((cmd === 'install' ? mod.install() : mod.uninstall()).join('\n'))
+    return console.log((cmd === 'install' ? mod.install({ url: v.url, docker: v.docker, token: v.token ?? process.env.PITFALL_HUB_TOKEN }) : mod.uninstall()).join('\n'))
+  }
+
+  if (cmd === 'hook') {
+    const { dockerBackend, handleHook, localBackend, remoteBackend } = await import('./hooks/claude.js')
+    // A hook must never break the session: swallow everything (including a stopped server), exit 0.
+    try {
+      const raw = readInput('-')
+      const { PITFALL_HUB_URL: url, PITFALL_HUB_DOCKER: container } = process.env
+      const backend = container
+        ? dockerBackend(container)
+        : url
+          ? remoteBackend(url, process.env.PITFALL_HUB_TOKEN)
+          : localBackend(new PitfallStore(openDatabase()))
+      const result = await handleHook(positionals[0] ?? '', raw.trim() ? JSON.parse(raw) : {}, backend)
+      if (result) console.log(JSON.stringify(result))
+    } catch (err) {
+      console.error(`[pitfall-hub] hook ${positionals[0]} skipped: ${(err as Error).message}`)
+    }
+    return
   }
 
   const store = new PitfallStore(openDatabase())
@@ -123,25 +152,23 @@ export async function main(argv: string[]) {
           .join('\n'),
       )
     }
+    case 'rpc': {
+      // JSON in, JSON out; the transport for hooks running outside the container (docker exec).
+      const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string }
+      if (positionals[0] === 'relevant') return console.log(JSON.stringify(store.relevantForTags(body.tags ?? [], body.limit)))
+      if (positionals[0] === 'match') {
+        const { matchErrorOutput } = await import('./core/match.js')
+        return console.log(JSON.stringify(matchErrorOutput(store, body.output ?? '')))
+      }
+      return fail(`Unknown rpc method "${positionals[0]}"`)
+    }
     case 'serve': {
-      const { runWebServer } = await import('./web/server.js')
-      return runWebServer(store, Number(v.port ?? process.env.PORT ?? 4477))
+      const { runWebServer } = await import('./http/server.js')
+      return runWebServer(store, Number(v.port ?? process.env.PORT ?? 4477), v.host ?? '127.0.0.1')
     }
     case 'mcp': {
       const { runMcpServer } = await import('./mcp/server.js')
       return runMcpServer(store)
-    }
-    case 'hook': {
-      const { handleHook } = await import('./hooks/claude.js')
-      // A hook must never break the session: swallow everything, exit 0.
-      try {
-        const raw = readInput('-')
-        const result = handleHook(positionals[0] ?? '', raw.trim() ? JSON.parse(raw) : {}, store)
-        if (result) console.log(JSON.stringify(result))
-      } catch (err) {
-        console.error(`[pitfall-hub] hook ${positionals[0]} failed: ${(err as Error).message}`)
-      }
-      return
     }
     default:
       return fail(`Unknown command "${cmd}".\n\n${HELP}`)

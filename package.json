@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.33.0",
   "description": "Cross-project pitfall knowledge base for coding agents (MCP + Web UI + CLI + Claude Code hooks).",
   "bin": {
     "pitfall": "./bin/pitfall.js"
@@ -17,7 +18,9 @@
     "dev:server": "tsx watch src/cli.ts serve",
     "dev:web": "vite --config web/vite.config.ts",
     "check": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "docker:up": "docker compose up -d --build",
+    "docker:logs": "docker compose logs -f pitfall-hub"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",

@@ -13,24 +13,34 @@ interface HookEntry {
   hooks: { type: string; command: string; timeout?: number }[]
 }
 
-function hookCommand(event: string) {
-  return `node ${JSON.stringify(BIN)} hook ${event}`
+type Target = { docker?: string; url?: string; token?: string }
+
+function hookCommand(event: string, t: Target) {
+  const token = t.url && t.token ? `PITFALL_HUB_TOKEN=${JSON.stringify(t.token)} ` : ''
+  const env = t.docker ? `PITFALL_HUB_DOCKER=${t.docker} ` : t.url ? `PITFALL_HUB_URL=${JSON.stringify(t.url)} ${token}` : ''
+  return `${env}node ${JSON.stringify(BIN)} hook ${event}`
 }
 
-const OUR_HOOKS: Record<string, HookEntry> = {
-  SessionStart: { hooks: [{ type: 'command', command: hookCommand('session-start'), timeout: 10 }] },
-  PostToolUseFailure: { matcher: 'Bash', hooks: [{ type: 'command', command: hookCommand('tool-failure'), timeout: 10 }] },
+const ourHooks = (url: Target): Record<string, HookEntry> => ({
+  SessionStart: { hooks: [{ type: 'command', command: hookCommand('session-start', url), timeout: 10 }] },
+  PostToolUseFailure: { matcher: 'Bash', hooks: [{ type: 'command', command: hookCommand('tool-failure', url), timeout: 10 }] },
   PostToolUse: {
     matcher: 'mcp__pitfall-hub__(record_pitfall|update_pitfall|pitfall_feedback)',
-    hooks: [{ type: 'command', command: hookCommand('recorded'), timeout: 10 }],
+    hooks: [{ type: 'command', command: hookCommand('recorded', url), timeout: 10 }],
   },
-  Stop: { hooks: [{ type: 'command', command: hookCommand('stop'), timeout: 10 }] },
-}
+  Stop: { hooks: [{ type: 'command', command: hookCommand('stop', url), timeout: 10 }] },
+})
 
 export interface InstallOptions {
   claudeDir?: string
   /** Skip `claude mcp add` (e.g. in tests). */
   skipMcp?: boolean
+  /** Base URL of a running pitfall-hub server. */
+  url?: string
+  /** Name of a pitfall-hub container reached with `docker exec` (no network path needed). */
+  docker?: string
+  /** Bearer token for `url`. */
+  token?: string
 }
 
 export function install(opts: InstallOptions = {}): string[] {
@@ -42,17 +52,28 @@ export function install(opts: InstallOptions = {}): string[] {
   writeFileSync(join(skillDir, 'SKILL.md'), SKILL_MD)
   log.push(`skill   → ${join(skillDir, 'SKILL.md')}`)
 
-  editSettings(dir, (hooks) => {
-    for (const [event, entry] of Object.entries(OUR_HOOKS)) {
-      hooks[event] = [...withoutOurs(hooks[event]), entry]
+  const url = opts.url?.replace(/\/+$/, '')
+  const hooks = ourHooks({ docker: opts.docker, url, token: opts.token })
+  editSettings(dir, (current) => {
+    for (const [event, entry] of Object.entries(hooks)) {
+      current[event] = [...withoutOurs(current[event]), entry]
     }
   })
-  log.push(`hooks   → ${join(dir, 'settings.json')} (${Object.keys(OUR_HOOKS).join(', ')})`)
+  log.push(`hooks   → ${join(dir, 'settings.json')} (${Object.keys(hooks).join(', ')})`)
 
   if (!opts.skipMcp) {
     claude(['mcp', 'remove', '-s', 'user', 'pitfall-hub'], true)
-    claude(['mcp', 'add', '-s', 'user', 'pitfall-hub', '--', 'node', BIN, 'mcp'])
-    log.push('mcp     → registered "pitfall-hub" at user scope')
+    if (opts.docker) {
+      // The MCP server runs inside the container; pass the agent's project name in, since cwd there is /app.
+      const cmd = `exec docker exec -i -e PITFALL_PROJECT="$(basename "$PWD")" ${opts.docker} pitfall mcp`
+      claude(['mcp', 'add', '-s', 'user', 'pitfall-hub', '--', 'sh', '-c', cmd])
+    } else if (url) {
+      const auth = opts.token ? ['--header', `Authorization: Bearer ${opts.token}`] : []
+      claude(['mcp', 'add', '-s', 'user', '--transport', 'http', ...auth, 'pitfall-hub', `${url}/mcp`])
+    }
+    else claude(['mcp', 'add', '-s', 'user', 'pitfall-hub', '--', 'node', BIN, 'mcp'])
+    const how = opts.docker ? `docker exec ${opts.docker}` : url ? `http ${url}/mcp` : 'stdio, local database'
+    log.push(`mcp     → registered "pitfall-hub" at user scope (${how})`)
   }
   return log
 }
