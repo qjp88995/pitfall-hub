@@ -239,3 +239,19 @@ describe('platform feedback', () => {
     expect(env.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(2)
   })
 })
+
+describe('term matching on whole words', () => {
+  it('does not match a Python TypeError against a JS dynamic-import pitfall', () => {
+    store.create({
+      title: 'Playwright MCP browser_run_code_unsafe has no fs/require: save data to disk through a page download',
+      symptom: "`await import('node:fs')` → `TypeError [ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING]: A dynamic import callback was not specified.`",
+      solution: 'x',
+      errorSignature: 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING',
+    })
+    const py = `Traceback (most recent call last):
+  File "/home/a/proj/diff.py", line 42, in <module>
+    delta = new - old
+TypeError: unsupported operand type(s) for -: 'NoneType' and 'NoneType'`
+    expect(matchErrorOutput(store, py)).toEqual([])
+  })
+})

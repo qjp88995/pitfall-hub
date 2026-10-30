@@ -13,7 +13,10 @@ const STOP = new Set(
   `error errors failed failure fatal warning warn info debug cannot could not found with from that this have been were will when
    then than which there their your into while above below undefined null true false return value exit code status node_modules
    command commands line file files path module modules version run running npm pnpm yarn exception stack trace traceback
-   internal process expected unexpected missing invalid https http www com`.split(/\s+/),
+   internal process expected unexpected missing invalid https http www com
+   most recent call last
+   typeerror referenceerror syntaxerror rangeerror valueerror keyerror indexerror attributeerror
+   runtimeerror nameerror importerror oserror ioerror assertionerror`.split(/\s+/),
 )
 const MIN_SIGNATURE = 12
 // Error codes, package names, flags: ERR_PNPM_LIFECYCLE, @prisma/client, linux-x64. Plain words
@@ -62,7 +65,9 @@ export function matchErrorOutput(store: PitfallStore, output: string, limit = 3)
     for (const p of items) {
       if (seen.has(p.id)) continue
       const hay = `${p.title}\n${p.symptom}\n${p.errorSignature}`.toLowerCase()
-      const matched = tokens.filter((t) => hay.includes(t))
+      const words = wordSet(hay)
+      // Whole words only: "call" must not match "callback". CJK has no word boundaries.
+      const matched = tokens.filter((t) => (/^\p{Script=Han}/u.test(t) ? hay.includes(t) : words.has(t)))
       const ratio = matched.length / tokens.length
       const specific = matched.some((t) => IDENTIFIER.test(t))
       if ((matched.length >= 3 && ratio >= 0.25) || (matched.length >= 2 && ratio >= 0.5 && specific)) {
@@ -88,6 +93,16 @@ export function distinctiveTokens(output: string, max = 12): string[] {
     .sort((a, b) => a[1] - b[1] || b[0].length - a[0].length)
     .slice(0, max)
     .map(([t]) => t)
+}
+
+/** Identifiers as written plus their parts, so "@prisma/client" also offers "prisma" and "client". */
+function wordSet(text: string): Set<string> {
+  const out = new Set<string>()
+  for (const raw of text.match(/[a-z_$@][\w$.@/-]*/g) ?? []) {
+    out.add(raw.replace(/[./-]+$/, ''))
+    for (const part of raw.split(/[^\w$]+/)) if (part) out.add(part)
+  }
+  return out
 }
 
 const SIMILAR_MIN_SHARED = 3
