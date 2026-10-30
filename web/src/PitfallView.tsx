@@ -28,7 +28,7 @@ export function PitfallView({ pitfall: p, onEdit, onChanged, onDeleted }: Props)
   }
 
   return (
-    <article className="rounded-md border border-line bg-surface lg:sticky lg:top-5">
+    <article className="rounded-md border border-line bg-surface">
       <header className="border-b border-line px-5 py-4">
         <div className="flex items-start gap-2">
           <SeverityDot severity={p.severity} />
@@ -81,7 +81,8 @@ export function PitfallView({ pitfall: p, onEdit, onChanged, onDeleted }: Props)
         )}
       </div>
 
-      <footer className="flex flex-wrap items-center gap-2 border-t border-line px-5 py-3 text-sm">
+      {/* Stays in view while a long entry scrolls. */}
+      <footer className="sticky bottom-0 flex flex-wrap items-center gap-2 rounded-b-md border-t border-line bg-surface px-5 py-3 text-sm">
         <button onClick={onEdit} className="rounded-md bg-ink px-3 py-1 text-bg hover:opacity-85">
           编辑
         </button>

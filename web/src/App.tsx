@@ -3,6 +3,7 @@ import { api, feedbackApi, setToken, UnauthorizedError, type Pitfall, type Searc
 import { FeedbackPanel } from './FeedbackPanel'
 import { PitfallEditor } from './PitfallEditor'
 import { PitfallView } from './PitfallView'
+import { TagPicker } from './TagPicker'
 
 const STATUS_FILTERS = [
   { value: 'active', label: '有效' },
@@ -10,6 +11,8 @@ const STATUS_FILTERS = [
   { value: 'archived', label: '已归档' },
   { value: 'all', label: '全部' },
 ]
+
+const ITEM_TAGS = 3
 
 type Panel = { mode: 'view'; id: string } | { mode: 'edit'; pitfall: Pitfall } | { mode: 'create' } | null
 
@@ -59,14 +62,14 @@ export function App() {
   }
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-5 md:px-6">
-      <header className="mb-5 flex flex-wrap items-end justify-between gap-3 border-b border-line pb-4">
-        <div>
-          <h1 className="font-mono text-lg font-semibold tracking-tight">
+    // Wide screens: the page itself never scrolls; list and detail scroll on their own.
+    <div className="mx-auto flex min-h-dvh max-w-7xl flex-col px-4 md:px-6 lg:h-dvh">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-line py-3">
+        <div className="flex items-baseline gap-5">
+          <h1 className="font-mono text-lg font-semibold tracking-tight" title="Agent 在各个项目里踩过、并已解决的坑">
             pitfall<span className="text-accent">/</span>hub
           </h1>
-          <p className="text-sm text-muted">Agent 在各个项目里踩过、并已解决的坑</p>
-          <nav className="mt-3 flex gap-4 text-sm">
+          <nav className="flex gap-4 text-sm">
             {(
               [
                 ['pitfalls', '坑'],
@@ -85,7 +88,7 @@ export function App() {
         </div>
         <div className="flex items-center gap-5">
           {stats && (
-            <dl className="flex gap-5 font-mono text-xs text-muted">
+            <dl className="hidden gap-4 font-mono text-xs text-muted sm:flex">
               <Stat label="条目" value={stats.total} />
               <Stat label="被检索" value={stats.hits} />
               <Stat label="有用" value={stats.helpful} />
@@ -102,30 +105,33 @@ export function App() {
       </header>
 
       {error && (
-        <p className="mb-4 rounded-md bg-accent-soft px-3 py-2 text-sm text-accent" onClick={() => setError('')}>
+        <p className="mt-3 shrink-0 rounded-md bg-accent-soft px-3 py-2 text-sm text-accent" onClick={() => setError('')}>
           {error}
         </p>
       )}
 
       {view === 'feedback' && (
-        <FeedbackPanel
-          onOpenPitfall={(id) => {
-            setView('pitfalls')
-            setStatus('all')
-            setPanel({ mode: 'view', id })
-          }}
-        />
+        <div className="min-h-0 flex-1 py-4 lg:overflow-y-auto">
+          <FeedbackPanel
+            onOpenPitfall={(id) => {
+              setView('pitfalls')
+              setStatus('all')
+              setPanel({ mode: 'view', id })
+            }}
+          />
+        </div>
       )}
 
-      <div className={`grid flex-1 gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] ${view === 'pitfalls' ? '' : 'hidden'}`}>
-        <section className="flex min-w-0 flex-col gap-3">
+      <div className={`grid min-h-0 flex-1 gap-5 pt-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] ${view === 'pitfalls' ? '' : 'hidden'}`}>
+        {/* Narrow screens show either the list or the open entry. */}
+        <section className={`min-h-0 min-w-0 flex-col gap-2.5 pb-5 lg:flex ${panel ? 'hidden' : 'flex'}`}>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="搜索标题、报错、方案……中英文都可以"
-            className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
+            className="w-full shrink-0 rounded-md border border-line bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
           />
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex shrink-0 flex-wrap items-center gap-1">
             {STATUS_FILTERS.map((s) => (
               <button
                 key={s.value}
@@ -136,41 +142,33 @@ export function App() {
                 {s.value !== 'all' && stats?.byStatus[s.value] ? ` ${stats.byStatus[s.value]}` : ''}
               </button>
             ))}
+            <span className="ml-auto font-mono text-xs text-muted">{result.total} 条</span>
           </div>
-          {allTags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {allTags.slice(0, 40).map((t) => (
-                <button
-                  key={t.tag}
-                  onClick={() => toggleTag(t.tag)}
-                  className={`rounded border px-1.5 py-0.5 font-mono text-xs transition-colors duration-100 ${
-                    tags.includes(t.tag) ? 'border-accent bg-accent-soft text-accent' : 'border-line text-muted hover:border-muted'
-                  }`}
-                >
-                  {t.tag}
-                  <span className="ml-1 opacity-60">{t.count}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          {allTags.length > 0 && <TagPicker tags={allTags} selected={tags} onToggle={toggleTag} onClear={() => setTags([])} />}
 
-          <p className="font-mono text-xs text-muted">{result.total} 条</p>
-          <ul className="flex flex-col divide-y divide-line overflow-hidden rounded-md border border-line bg-surface">
+          <ul className="flex min-h-0 flex-col divide-y divide-line overflow-hidden rounded-md border border-line bg-surface lg:overflow-y-auto">
             {result.items.map((p) => (
               <li key={p.id}>
                 <button
                   onClick={() => setPanel({ mode: 'view', id: p.id })}
-                  className={`block w-full px-3 py-2.5 text-left transition-colors duration-100 hover:bg-sunken ${
+                  className={`block w-full px-3 py-2 text-left transition-colors duration-100 hover:bg-sunken ${
                     panel?.mode === 'view' && panel.id === p.id ? 'bg-sunken' : ''
                   }`}
                 >
                   <div className="flex items-start gap-2">
                     <SeverityDot severity={p.severity} />
-                    <span className="text-sm font-medium">{p.title}</span>
+                    <span className="line-clamp-2 text-sm font-medium" title={p.title}>
+                      {p.title}
+                    </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 pl-4 font-mono text-xs text-muted">
-                    {p.tags.length > 0 && <span>{p.tags.join(' · ')}</span>}
-                    {p.sourceProject && <span>@{p.sourceProject}</span>}
+                  <div className="mt-0.5 flex gap-x-3 pl-4 font-mono text-xs whitespace-nowrap text-muted">
+                    {p.tags.length > 0 && (
+                      <span className="min-w-0 truncate">
+                        {p.tags.slice(0, ITEM_TAGS).join(' · ')}
+                        {p.tags.length > ITEM_TAGS && ` +${p.tags.length - ITEM_TAGS}`}
+                      </span>
+                    )}
+                    {p.sourceProject && <span className="min-w-0 truncate">@{p.sourceProject}</span>}
                     {p.hitCount > 0 && <span>↺{p.hitCount}</span>}
                     {p.helpfulCount > 0 && <span className="text-ok">✓{p.helpfulCount}</span>}
                     {p.status !== 'active' && <span className="text-warn">{p.status}</span>}
@@ -182,7 +180,12 @@ export function App() {
           </ul>
         </section>
 
-        <section className="min-w-0">
+        <section className={`min-h-0 min-w-0 pb-5 lg:block lg:overflow-y-auto ${panel ? '' : 'hidden'}`}>
+          {panel && (
+            <button onClick={() => setPanel(null)} className="mb-3 text-sm text-muted hover:text-ink lg:hidden">
+              ← 返回列表
+            </button>
+          )}
           {panel?.mode === 'create' && <PitfallEditor onCancel={() => setPanel(null)} onSaved={onSaved} />}
           {panel?.mode === 'edit' && (
             <PitfallEditor pitfall={panel.pitfall} onCancel={() => setPanel({ mode: 'view', id: panel.pitfall.id })} onSaved={onSaved} />
@@ -239,9 +242,9 @@ function TokenGate({ onSubmit }: { onSubmit: (token: string) => void }) {
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="text-right">
+    <div className="flex items-baseline gap-1.5">
       <dt>{label}</dt>
-      <dd className="text-base text-ink">{value}</dd>
+      <dd className="text-sm text-ink">{value}</dd>
     </div>
   )
 }
