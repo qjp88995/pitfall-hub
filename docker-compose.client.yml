@@ -18,6 +18,18 @@ services:
     init: true
     # Idle; work arrives through docker exec.
     command: ['sleep', 'infinity']
+    # The image's HEALTHCHECK probes the local server on :4477, which this container doesn't run.
+    # Here "healthy" means the hosted server is reachable.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch(new URL('/healthz', process.env.PITFALL_HUB_URL), { signal: AbortSignal.timeout(8000) }).then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 5m
+      timeout: 10s
+      start_period: 10s
+      start_interval: 5s
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       PITFALL_HUB_URL: ${PITFALL_HUB_URL:?PITFALL_HUB_URL required}
