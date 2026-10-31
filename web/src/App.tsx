@@ -146,7 +146,7 @@ export function App() {
           </div>
           {allTags.length > 0 && <TagPicker tags={allTags} selected={tags} onToggle={toggleTag} onClear={() => setTags([])} />}
 
-          <ul className="flex min-h-0 flex-col divide-y divide-line overflow-hidden rounded-md border border-line bg-surface lg:overflow-y-auto">
+          <ul className="flex min-h-0 flex-col divide-y divide-line overflow-hidden rounded-md border border-line bg-surface lg:flex-1 lg:overflow-y-auto">
             {result.items.map((p) => (
               <li key={p.id}>
                 <button
@@ -180,7 +180,8 @@ export function App() {
           </ul>
         </section>
 
-        <section className={`min-h-0 min-w-0 pb-5 lg:block lg:overflow-y-auto ${panel ? '' : 'hidden'}`}>
+        {/* The card itself fills the column and scrolls, so both columns end at the same line. */}
+        <section className={`min-h-0 min-w-0 flex-col pb-5 lg:flex ${panel ? 'flex' : 'hidden'}`}>
           {panel && (
             <button onClick={() => setPanel(null)} className="mb-3 text-sm text-muted hover:text-ink lg:hidden">
               ← 返回列表
@@ -202,7 +203,7 @@ export function App() {
             />
           )}
           {(!panel || (panel.mode === 'view' && !selected)) && (
-            <div className="hidden h-full min-h-60 items-center justify-center rounded-md border border-dashed border-line text-sm text-muted lg:flex">
+            <div className="hidden min-h-60 flex-1 items-center justify-center rounded-md border border-dashed border-line text-sm text-muted lg:flex">
               选择左侧条目查看详情
             </div>
           )}

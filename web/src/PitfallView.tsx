@@ -28,7 +28,7 @@ export function PitfallView({ pitfall: p, onEdit, onChanged, onDeleted }: Props)
   }
 
   return (
-    <article className="rounded-md border border-line bg-surface">
+    <article className="rounded-md border border-line bg-surface lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
       <header className="border-b border-line px-5 py-4">
         <div className="flex items-start gap-2">
           <SeverityDot severity={p.severity} />

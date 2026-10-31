@@ -46,7 +46,7 @@ export function PitfallEditor({ pitfall, onCancel, onSaved }: Props) {
   const field = 'w-full rounded-md border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-accent'
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-3 rounded-md border border-line bg-surface p-5">
+    <form onSubmit={submit} className="flex flex-col gap-3 rounded-md border border-line bg-surface p-5 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
       <h2 className="font-mono text-xs uppercase tracking-wider text-muted">{pitfall ? `编辑 ${pitfall.id}` : '新建条目'}</h2>
       <Label text="标题 *">
         <input required value={form.title} onChange={set('title')} className={field} placeholder="一句话描述这个坑，便于检索" />
