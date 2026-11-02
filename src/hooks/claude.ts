@@ -73,9 +73,16 @@ export function remoteBackend(baseUrl: string, token?: string, timeoutMs = 3000)
 export function dockerBackend(container: string, timeoutMs = 5000): HookBackend {
   const rpc = <T>(method: string, body: unknown) =>
     new Promise<T>((resolve, reject) => {
-      const child = execFile('docker', ['exec', '-i', container, 'pitfall', 'rpc', method], { timeout: timeoutMs }, (err, stdout) =>
-        err ? reject(err) : resolve(JSON.parse(stdout) as T),
-      )
+      const child = execFile('docker', ['exec', '-i', container, 'pitfall', 'rpc', method], { timeout: timeoutMs }, (err, stdout, stderr) => {
+        if (err) return reject(err)
+        // docker exec occasionally exits 0 with no output; a throw here would escape the promise
+        // and crash the hook instead of degrading to "no data".
+        try {
+          resolve(JSON.parse(stdout) as T)
+        } catch {
+          reject(new Error(`rpc ${method}: unparseable output ${JSON.stringify(stdout.slice(0, 200))} ${stderr.slice(0, 200)}`))
+        }
+      })
       child.stdin?.end(JSON.stringify(body))
     })
   return {
