@@ -255,3 +255,23 @@ TypeError: unsupported operand type(s) for -: 'NoneType' and 'NoneType'`
     expect(matchErrorOutput(store, py)).toEqual([])
   })
 })
+
+describe('generic errno messages', () => {
+  it('does not match a plain ENOENT against a pitfall that quotes one', () => {
+    store.create({
+      title: 'Playwright MCP on Windows driven from WSL: browser_run_code_unsafe `filename` cannot load any file',
+      symptom: "`Error: ENOENT: no such file or directory, open 'E:\\home\\calf\\proj\\.playwright-mcp\\x.js'`",
+      solution: 'x',
+      errorSignature: 'is outside allowed roots. Allowed roots:',
+    })
+    const out = `Error: ENOENT: no such file or directory, open '/home/calf/proj/out/mdome2--1.png'
+    at Object.openSync (node:fs:573:18) {
+  errno: -2,
+  code: 'ENOENT',
+  syscall: 'open',
+  path: '/home/calf/proj/out/mdome2--1.png'
+}`
+    expect(distinctiveTokens(out)).not.toContain('home/calf/proj/out/mdome2--1.png')
+    expect(matchErrorOutput(store, out)).toEqual([])
+  })
+})

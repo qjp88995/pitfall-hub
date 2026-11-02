@@ -16,7 +16,8 @@ const STOP = new Set(
    internal process expected unexpected missing invalid https http www com
    most recent call last
    typeerror referenceerror syntaxerror rangeerror valueerror keyerror indexerror attributeerror
-   runtimeerror nameerror importerror oserror ioerror assertionerror`.split(/\s+/),
+   runtimeerror nameerror importerror oserror ioerror assertionerror
+   enoent eacces eperm eexist eisdir enotdir enotempty ebusy emfile errno syscall such directory open`.split(/\s+/),
 )
 const MIN_SIGNATURE = 12
 // Error codes, package names, flags: ERR_PNPM_LIFECYCLE, @prisma/client, linux-x64. Plain words
@@ -82,9 +83,11 @@ export function distinctiveTokens(output: string, max = 12): string[] {
   const lines = output.split('\n').filter((l) => ERROR_LINE.test(l))
   const counts = new Map<string, number>()
   for (const line of (lines.length ? lines : output.split('\n')).slice(0, 40)) {
-    for (const raw of line.toLowerCase().match(/[a-z_$][\w$.@/-]{3,}|[\p{Script=Han}]{3,}/gu) ?? []) {
-      const t = raw.replace(/[./-]+$/, '')
-      if (t.length < 4 || STOP.has(t) || /^(?:\/|\.\/|~\/)/.test(t) || /\d{3,}/.test(t)) continue
+    for (const m of line.toLowerCase().matchAll(/[a-z_$][\w$.@/-]{3,}|[\p{Script=Han}]{3,}/gu)) {
+      const t = m[0].replace(/[./-]+$/, '')
+      // Paths: the token regex skips a leading "/", so look at the character before the match.
+      const inPath = /[/\\~]/.test(line[m.index - 1] ?? '')
+      if (t.length < 4 || STOP.has(t) || inPath || /^(?:\.\/|~\/)/.test(t) || /\d{3,}/.test(t)) continue
       counts.set(t, (counts.get(t) ?? 0) + 1)
     }
   }
