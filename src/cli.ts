@@ -22,7 +22,7 @@ Usage:
   pitfall mcp                          MCP server over stdio (with PITFALL_HUB_URL: proxy to that server)
   pitfall hook <event>                 Claude Code hook handler (reads stdin)
                                        data source: PITFALL_HUB_DOCKER=<container> | PITFALL_HUB_URL=<url> | local DB
-  pitfall rpc relevant|match|issues    JSON stdin → JSON stdout (used by hooks via docker exec)
+  pitfall rpc relevant|match|issues|review   JSON stdin → JSON stdout (used by hooks via docker exec)
   pitfall install [--docker C | --url U [--token T]]
                                        register MCP server, skill and hooks in ~/.claude
                                        --docker: data lives in container C, reached via docker exec
@@ -102,7 +102,9 @@ export async function main(argv: string[]) {
           ? await backend.match(body.output ?? '')
           : method === 'issues'
             ? await backend.openIssues(body.limit ?? 10)
-            : undefined
+            : method === 'review'
+              ? await backend.reviewQueue(body.limit ?? 5)
+              : undefined
     if (result === undefined) return fail(`Unknown rpc method "${method}"`)
     return console.log(JSON.stringify(result))
   }
@@ -182,6 +184,10 @@ export async function main(argv: string[]) {
       if (positionals[0] === 'issues') {
         const { FeedbackStore } = await import('./core/feedback.js')
         return console.log(JSON.stringify(new FeedbackStore(store.db).list({ limit: body.limit })))
+      }
+      if (positionals[0] === 'review') {
+        const { reviewQueue } = await import('./core/review.js')
+        return console.log(JSON.stringify(reviewQueue(store, { limit: body.limit })))
       }
       if (positionals[0] === 'match') {
         const { matchErrorOutput } = await import('./core/match.js')

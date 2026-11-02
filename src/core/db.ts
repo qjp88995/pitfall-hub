@@ -72,6 +72,11 @@ const MIGRATIONS = [
   );
   CREATE INDEX feedback_status ON feedback(status);
   `,
+  // Review queue: when an entry was last checked, and how often it had been opened by then.
+  `
+  ALTER TABLE pitfalls ADD COLUMN reviewed_at TEXT;
+  ALTER TABLE pitfalls ADD COLUMN reviewed_hits INTEGER NOT NULL DEFAULT 0;
+  `,
 ]
 
 export function openDatabase(path = defaultDbPath()): DatabaseSync {

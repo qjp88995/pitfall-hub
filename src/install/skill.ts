@@ -64,4 +64,6 @@ Report concrete, reproducible friction, once per occurrence; repeats add a vote.
 generic: no secrets or proprietary code, only the error text needed to reproduce. Don't
 interrupt the user's task for it — one call, then carry on. When working in the pitfall-hub
 repo itself, the session starts with the open reports; fix them and \`resolve_platform_issue\`.
+It also lists entries to review (\`list_review_queue\`): read each, correct it with
+\`update_pitfall\` if needed, then \`review_pitfall\` \`keep\` / \`outdated\` / \`archived\`.
 `

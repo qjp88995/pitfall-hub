@@ -29,6 +29,10 @@ export interface Pitfall {
   createdAt: string
   updatedAt: string
   lastHitAt: string | null
+  /** Last time the entry was checked from the review queue. */
+  reviewedAt: string | null
+  /** hitCount at that review; later opens count towards the next one. */
+  reviewedHits: number
 }
 
 export type PitfallInput = Pick<Pitfall, 'title' | 'solution'> &

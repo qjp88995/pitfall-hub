@@ -31,6 +31,8 @@ interface Row {
   created_at: string
   updated_at: string
   last_hit_at: string | null
+  reviewed_at: string | null
+  reviewed_hits: number
   score?: number | null
 }
 
@@ -303,7 +305,8 @@ export class PitfallStore {
     this.db
       .prepare(
         `UPDATE pitfalls SET id = ?, hit_count = max(hit_count, ?), helpful_count = max(helpful_count, ?),
-           created_at = coalesce(?, created_at), updated_at = coalesce(?, updated_at), last_hit_at = coalesce(?, last_hit_at)
+           created_at = coalesce(?, created_at), updated_at = coalesce(?, updated_at), last_hit_at = coalesce(?, last_hit_at),
+           reviewed_at = coalesce(?, reviewed_at), reviewed_hits = max(reviewed_hits, ?)
          WHERE id = ?`,
       )
       .run(
@@ -313,6 +316,8 @@ export class PitfallStore {
         item.createdAt ?? null,
         item.updatedAt ?? null,
         item.lastHitAt ?? null,
+        item.reviewedAt ?? null,
+        item.reviewedHits ?? 0,
         currentId,
       )
   }
@@ -351,6 +356,8 @@ function toPitfall(r: Row): Pitfall {
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     lastHitAt: r.last_hit_at,
+    reviewedAt: r.reviewed_at,
+    reviewedHits: r.reviewed_hits,
   }
 }
 

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { formatErrorMatches, formatFull, formatSearch, oneLine } from '../core/format.js'
 import { isDistinctiveSignature, matchErrorOutput, similarEntries } from '../core/match.js'
 import { FEEDBACK_KINDS, FEEDBACK_STATUSES, FeedbackStore } from '../core/feedback.js'
+import { REVIEW_VERDICTS, reviewPitfall, reviewQueue } from '../core/review.js'
 import type { PitfallStore } from '../core/store.js'
 import { SEVERITIES, STATUSES, type PitfallPatch } from '../core/types.js'
 
@@ -225,6 +226,38 @@ export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
     async ({ id, status, resolution }) => {
       const f = feedbackStore.resolve(id, status, resolution)
       return f ? text(`${f.id} → ${f.status}`) : text(`No platform issue ${id}`, true)
+    },
+  )
+
+  server.registerTool(
+    'list_review_queue',
+    {
+      description:
+        'Entries that may be wrong or dead weight: repeatedly reported irrelevant, opened often but never helpful, or never opened for months. Use when working on the pitfall-hub codebase.',
+      inputSchema: { limit: z.number().int().min(1).max(100).optional() },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ limit }) => {
+      const { items, total } = reviewQueue(store, { limit })
+      if (!items.length) return text('Review queue is empty.')
+      return text([`${total} entr${total === 1 ? 'y' : 'ies'} to review:`, ...items.map((r) => oneLine(r.pitfall, ` ← ${r.reasons.join('; ')}`))].join('\n'))
+    },
+  )
+
+  server.registerTool(
+    'review_pitfall',
+    {
+      description:
+        'Record the outcome of checking an entry from the review queue (fix its content with update_pitfall first if needed). keep: still correct; it leaves the queue until new evidence arrives. outdated: no longer true. archived: not worth keeping (wrong, too project-specific, or a duplicate). Closes the open irrelevant-match reports on the entry.',
+      inputSchema: {
+        id: z.string(),
+        verdict: z.enum(REVIEW_VERDICTS),
+        note: z.string().optional().describe('What was checked / why; appended to the solution for outdated and archived'),
+      },
+    },
+    async ({ id, verdict, note }) => {
+      const p = reviewPitfall(store, id, verdict, note)
+      return p ? text(`Reviewed ${p.id}: ${verdict}`) : text(`No pitfall ${id}`, true)
     },
   )
 

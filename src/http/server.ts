@@ -8,6 +8,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { Hono, type Context, type Next } from 'hono'
 import { FEEDBACK_STATUSES, FeedbackStore, type FeedbackStatus } from '../core/feedback.js'
 import { matchErrorOutput } from '../core/match.js'
+import { reviewQueue } from '../core/review.js'
 import type { PitfallStore } from '../core/store.js'
 import { STATUSES, type PitfallInput, type PitfallPatch, type PitfallStatus } from '../core/types.js'
 import { createMcpServer } from '../mcp/server.js'
@@ -102,6 +103,7 @@ export function createApp(store: PitfallStore, opts: AppOptions = {}) {
     const f = feedback.resolve(c.req.param('id'), status, resolution)
     return f ? c.json(f) : c.json({ error: 'not found' }, 404)
   })
+  app.get('/api/review', (c) => c.json(reviewQueue(store, { limit: Number(c.req.query('limit') ?? 20) })))
   app.post('/api/import', async (c) => c.json(store.importMany(await c.req.json())))
 
   if (existsSync(WEB_DIST)) {

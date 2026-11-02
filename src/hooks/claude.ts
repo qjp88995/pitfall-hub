@@ -5,6 +5,7 @@ import { defaultDbPath } from '../core/db.js'
 import { ENVIRONMENT_TAGS, fingerprint } from '../core/fingerprint.js'
 import { formatErrorMatches, oneLine } from '../core/format.js'
 import { matchErrorOutput, type ErrorMatch } from '../core/match.js'
+import { reviewQueue, type ReviewItem } from '../core/review.js'
 import type { PitfallStore } from '../core/store.js'
 import { FeedbackStore, type Feedback } from '../core/feedback.js'
 import type { Pitfall } from '../core/types.js'
@@ -34,6 +35,7 @@ export interface HookBackend {
   relevant(tags: string[], limit: number): Promise<{ items: (Pitfall & { matchedTags: string[] })[]; total: number }>
   match(output: string): Promise<ErrorMatch[]>
   openIssues(limit: number): Promise<{ items: Feedback[]; total: number }>
+  reviewQueue(limit: number): Promise<{ items: ReviewItem[]; total: number }>
 }
 
 /** The project whose sessions get the platform's open feedback at start. */
@@ -44,6 +46,7 @@ export function localBackend(store: PitfallStore): HookBackend {
     relevant: async (tags, limit) => store.relevantForTags(tags, limit),
     match: async (output) => matchErrorOutput(store, output),
     openIssues: async (limit) => new FeedbackStore(store.db).list({ limit }),
+    reviewQueue: async (limit) => reviewQueue(store, { limit }),
   }
 }
 
@@ -62,6 +65,7 @@ export function remoteBackend(baseUrl: string, token?: string, timeoutMs = 3000)
     relevant: (tags, limit) => post('/api/relevant', { tags, limit }),
     match: (output) => post('/api/match', { output }),
     openIssues: (limit) => post(`/api/feedback?limit=${limit}`),
+    reviewQueue: (limit) => post(`/api/review?limit=${limit}`),
   }
 }
 
@@ -78,11 +82,13 @@ export function dockerBackend(container: string, timeoutMs = 5000): HookBackend 
     relevant: (tags, limit) => rpc('relevant', { tags, limit }),
     match: (output) => rpc('match', { output }),
     openIssues: (limit) => rpc('issues', { limit }),
+    reviewQueue: (limit) => rpc('review', { limit }),
   }
 }
 
 const STACK_LIMIT = 6
 const ENVIRONMENT_LIMIT = 2
+const REVIEW_LIMIT = 5
 
 // Always shown, so the platform is known in every project even when nothing matches yet.
 const PRESENCE = `[pitfall-hub] Cross-project pitfall knowledge base (MCP server "pitfall-hub", skill "pitfall-hub"). Before a second debugging attempt: search_pitfalls / match_error. After a non-obvious fix that would recur elsewhere: record_pitfall. When it surfaces something unrelated or misses something: pitfall_feedback irrelevant / report_platform_issue.`
@@ -109,11 +115,15 @@ async function sessionStart(input: HookInput, backend: HookBackend) {
   const fp = fingerprint(input.cwd || process.cwd())
   let items: (Pitfall & { matchedTags: string[] })[] = []
   let issues: { items: Feedback[]; total: number } | null = null
+  let review: { items: ReviewItem[]; total: number } | null = null
   let unreachable = ''
+  const atPlatform = fp.name === PLATFORM_PROJECT
   try {
-    ;[{ items }, issues] = await Promise.all([
+    ;[{ items }, issues, review] = await Promise.all([
       backend.relevant(fp.tags, 50),
-      fp.name === PLATFORM_PROJECT ? backend.openIssues(10) : null,
+      atPlatform ? backend.openIssues(10) : null,
+      // Optional: an older server or client container does not know this call yet.
+      atPlatform ? backend.reviewQueue(REVIEW_LIMIT).catch(() => null) : null,
     ])
   } catch (err) {
     // The announcement must survive an unreachable server; only the data is missing.
@@ -141,6 +151,12 @@ async function sessionStart(input: HookInput, backend: HookBackend) {
     lines.push(
       `[pitfall-hub] ${issues.total} open report(s) about this platform from agents in other projects (list_platform_issues for details, resolve_platform_issue when fixed):`,
       ...issues.items.map((f) => `- ${f.id} [${f.kind}] ${f.votes}x ${f.title}`),
+    )
+  }
+  if (review?.items.length) {
+    lines.push(
+      `[pitfall-hub] ${review.total} entr${review.total === 1 ? 'y' : 'ies'} to review (get_pitfall, fix with update_pitfall if needed, then review_pitfall keep / outdated / archived):`,
+      ...review.items.map((r) => `- ${r.pitfall.id} ${r.pitfall.title} ← ${r.reasons.join('; ')}`),
     )
   }
   return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: lines.join('\n') } }
