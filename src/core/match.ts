@@ -44,7 +44,9 @@ export function isDistinctiveSignature(signature: string): boolean {
  *  1. signature: an entry's normalized error signature occurs verbatim in the normalized output.
  *  2. terms: distinctive tokens from the error lines (no generic words, no numbers) overlap the
  *     entry's title/symptom/signature: 3+ tokens covering a quarter, or 2+ covering half when one
- *     of them is identifier-like.
+ *     of them is identifier-like. Output with no error-looking line at all (a command that failed
+ *     silently after printing routine logs or NOTICEs) needs 2+ identifier-like tokens instead, since
+ *     its words are just whatever the command printed ("migrations", "complete", "routine").
  */
 export function matchErrorOutput(store: PitfallStore, output: string, limit = 3): ErrorMatch[] {
   const text = output.length > 20_000 ? output.slice(0, 4_000) + '\n' + output.slice(-16_000) : output
@@ -61,6 +63,7 @@ export function matchErrorOutput(store: PitfallStore, output: string, limit = 3)
   }
 
   const tokens = distinctiveTokens(text)
+  const hasErrorLine = text.split('\n').some((l) => ERROR_LINE.test(l))
   if (tokens.length >= 2 && results.length < limit) {
     const { items } = store.search({ q: tokens.join(' '), limit: 10 })
     for (const p of items) {
@@ -70,8 +73,11 @@ export function matchErrorOutput(store: PitfallStore, output: string, limit = 3)
       // Whole words only: "call" must not match "callback". CJK has no word boundaries.
       const matched = tokens.filter((t) => (/^\p{Script=Han}/u.test(t) ? hay.includes(t) : words.has(t)))
       const ratio = matched.length / tokens.length
-      const specific = matched.some((t) => IDENTIFIER.test(t))
-      if ((matched.length >= 3 && ratio >= 0.25) || (matched.length >= 2 && ratio >= 0.5 && specific)) {
+      const specific = matched.filter((t) => IDENTIFIER.test(t)).length
+      const ok = hasErrorLine
+        ? (matched.length >= 3 && ratio >= 0.25) || (matched.length >= 2 && ratio >= 0.5 && specific >= 1)
+        : specific >= 2
+      if (ok) {
         results.push({ pitfall: p, reason: 'terms', matched })
       }
     }

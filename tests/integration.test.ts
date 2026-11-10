@@ -275,3 +275,30 @@ describe('generic errno messages', () => {
     expect(matchErrorOutput(store, out)).toEqual([])
   })
 })
+
+describe('output without error lines', () => {
+  it('does not match benign drizzle migrate NOTICEs from a command that failed elsewhere', () => {
+    store.create({
+      title: 'drizzle-kit auto-generated FK names over 63 chars get silently truncated by Postgres (only a NOTICE during migrate)',
+      symptom: "`drizzle-kit migrate` prints a NOTICE with `routine: 'truncate_identifier'` and still says \"Migrations complete.\" Names like `license_package_version_published_by_token_license_install_token_id_fk` are cut to 63.",
+      solution: 'x',
+      tags: ['drizzle-orm', 'drizzle-kit', 'postgresql'],
+    })
+    const out = `{
+  severity_local: 'NOTICE',
+  code: '42P06',
+  message: 'schema "drizzle" already exists, skipping',
+  routine: 'CreateSchemaCommand'
+}
+Migrations complete.`
+    expect(matchErrorOutput(store, out)).toEqual([])
+    const truncated = `{
+  severity_local: 'NOTICE',
+  code: '42622',
+  message: 'identifier "license_package_version_published_by_token_license_install_token_id_fk" will be truncated to "license_package_version_published_by_token_license_install_tok"',
+  routine: 'truncate_identifier'
+}
+Migrations complete.`
+    expect(matchErrorOutput(store, truncated)).toHaveLength(1)
+  })
+})
