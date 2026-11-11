@@ -24,6 +24,10 @@ const MIN_SIGNATURE = 12
 // like "server" or "curl" show up in unrelated failures and are not enough on their own.
 const IDENTIFIER = /[_@/.$-]|\d/
 const MIN_SIGNATURE_TOKENS = 2
+// Plain English words ("type", "data", "instead") overlap almost any long symptom; without an
+// identifier among them, demand more of them and a bigger share of the output's tokens.
+const PLAIN_MIN_MATCHED = 4
+const PLAIN_MIN_RATIO = 0.4
 
 /**
  * A signature is only trusted for exact matching if something specific survives normalization.
@@ -43,8 +47,8 @@ export function isDistinctiveSignature(signature: string): boolean {
  * Built for precision: injecting a wrong pitfall into an agent's context is worse than none.
  *  1. signature: an entry's normalized error signature occurs verbatim in the normalized output.
  *  2. terms: distinctive tokens from the error lines (no generic words, no numbers) overlap the
- *     entry's title/symptom/signature: 3+ tokens covering a quarter, or 2+ covering half when one
- *     of them is identifier-like. Output with no error-looking line at all (a command that failed
+ *     entry's title/symptom/signature. With an identifier-like token among them: 3+ tokens covering
+ *     a quarter, or 2+ covering half. Plain words only: 4+ covering 40%. Output with no error-looking line at all (a command that failed
  *     silently after printing routine logs or NOTICEs) needs 2+ identifier-like tokens instead, since
  *     its words are just whatever the command printed ("migrations", "complete", "routine").
  */
@@ -75,7 +79,9 @@ export function matchErrorOutput(store: PitfallStore, output: string, limit = 3)
       const ratio = matched.length / tokens.length
       const specific = matched.filter((t) => IDENTIFIER.test(t)).length
       const ok = hasErrorLine
-        ? (matched.length >= 3 && ratio >= 0.25) || (matched.length >= 2 && ratio >= 0.5 && specific >= 1)
+        ? specific >= 1
+          ? (matched.length >= 3 && ratio >= 0.25) || (matched.length >= 2 && ratio >= 0.5)
+          : matched.length >= PLAIN_MIN_MATCHED && ratio >= PLAIN_MIN_RATIO
         : specific >= 2
       if (ok) {
         results.push({ pitfall: p, reason: 'terms', matched })

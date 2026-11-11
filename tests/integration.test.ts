@@ -302,3 +302,20 @@ Migrations complete.`
     expect(matchErrorOutput(store, truncated)).toHaveLength(1)
   })
 })
+
+describe('plain-word overlaps', () => {
+  it('does not match an eslint deprecation against a docker volume pitfall on type/data/instead', () => {
+    store.create({
+      title: 'docker compose silently reuses a leftover named volume, ignoring the driver_opts (bind device) you just declared',
+      symptom:
+        "Changed a compose volume to `driver: local` + `driver_opts: {type: none, o: bind, device: /abs/path}` and ran `docker compose up -d`. No error or warning. `docker volume inspect` printed `map[]`, the bind dir stayed empty, and the data went to /var/lib/docker/volumes instead.",
+      solution: 'docker volume rm the stale one',
+      tags: ['docker'],
+    })
+    const out = `/repo/src/encode.ts
+  12:5  error  \`type\` is deprecated. Use 'file' with mediaType + tagged data instead  @typescript-eslint/no-deprecated
+
+✖ 1 problem (1 error, 0 warnings)`
+    expect(matchErrorOutput(store, out)).toEqual([])
+  })
+})
