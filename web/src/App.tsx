@@ -1,6 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useState } from 'react'
 import { api, feedbackApi, setToken, UnauthorizedError, type Pitfall, type SearchResult, type Stats } from './api'
 import { FeedbackPanel } from './FeedbackPanel'
+import { Overview } from './Overview'
 import { PitfallEditor } from './PitfallEditor'
 import { PitfallView } from './PitfallView'
 import { TagPicker } from './TagPicker'
@@ -13,6 +14,16 @@ const STATUS_FILTERS = [
 ]
 
 const ITEM_TAGS = 3
+
+const VIEWS = [
+  ['overview', '总览'],
+  ['pitfalls', '坑'],
+  ['feedback', '平台反馈'],
+] as const
+type View = (typeof VIEWS)[number][0]
+
+// The open tab lives in the URL hash so a reload or a shared link lands on it.
+const viewFromHash = (): View => VIEWS.find(([key]) => `#${key}` === location.hash)?.[0] ?? 'overview'
 
 type Panel = { mode: 'view'; id: string } | { mode: 'edit'; pitfall: Pitfall } | { mode: 'create' } | null
 
@@ -27,7 +38,9 @@ export function App() {
   const [error, setError] = useState('')
   const [locked, setLocked] = useState(false)
   const [authVersion, setAuthVersion] = useState(0)
-  const [view, setView] = useState<'pitfalls' | 'feedback'>('pitfalls')
+  const [view, setViewState] = useState<View>(viewFromHash)
+  // An entry opened from elsewhere (overview, feedback) that the current list does not contain.
+  const [detached, setDetached] = useState<Pitfall | null>(null)
   const [openFeedback, setOpenFeedback] = useState(0)
   const deferredQ = useDeferredValue(q)
 
@@ -41,6 +54,27 @@ export function App() {
 
   useEffect(refresh, [refresh])
 
+  useEffect(() => {
+    const onHash = () => setViewState(viewFromHash())
+    addEventListener('hashchange', onHash)
+    return () => removeEventListener('hashchange', onHash)
+  }, [])
+  const setView = (v: View) => {
+    history.replaceState(null, '', `#${v}`)
+    setViewState(v)
+  }
+
+  const openId = panel?.mode === 'view' ? panel.id : null
+  const inList = openId ? result.items.some((p) => p.id === openId) : true
+  useEffect(() => {
+    if (!openId || inList) return setDetached(null)
+    let live = true
+    api.get(openId).then((p) => live && setDetached(p), () => live && setDetached(null))
+    return () => {
+      live = false
+    }
+  }, [openId, inList])
+
   if (locked) {
     return (
       <TokenGate
@@ -53,7 +87,11 @@ export function App() {
     )
   }
 
-  const selected = panel?.mode === 'view' ? result.items.find((p) => p.id === panel.id) : undefined
+  const selected = panel?.mode === 'view' ? (result.items.find((p) => p.id === panel.id) ?? (detached?.id === panel.id ? detached : undefined)) : undefined
+  const openPitfall = (id: string) => {
+    setView('pitfalls')
+    setPanel({ mode: 'view', id })
+  }
   const toggleTag = (tag: string) => setTags((t) => (t.includes(tag) ? t.filter((x) => x !== tag) : [...t, tag]))
 
   const onSaved = (p: Pitfall) => {
@@ -70,12 +108,7 @@ export function App() {
             pitfall<span className="text-accent">/</span>hub
           </h1>
           <nav className="flex gap-4 text-sm">
-            {(
-              [
-                ['pitfalls', '坑'],
-                ['feedback', `平台反馈${openFeedback ? ` ${openFeedback}` : ''}`],
-              ] as const
-            ).map(([key, label]) => (
+            {VIEWS.map(([key, name]) => [key, key === 'feedback' && openFeedback ? `${name} ${openFeedback}` : name] as const).map(([key, label]) => (
               <button
                 key={key}
                 onClick={() => setView(key)}
@@ -87,14 +120,6 @@ export function App() {
           </nav>
         </div>
         <div className="flex items-center gap-5">
-          {stats && (
-            <dl className="hidden gap-4 font-mono text-xs text-muted sm:flex">
-              <Stat label="条目" value={stats.total} />
-              <Stat label="被检索" value={stats.hits} />
-              <Stat label="有用" value={stats.helpful} />
-              <Stat label="来源项目" value={stats.projects.length} />
-            </dl>
-          )}
           <button
             onClick={() => setPanel({ mode: 'create' })}
             className="rounded-md bg-ink px-3 py-1.5 text-sm font-medium text-bg transition-opacity duration-150 hover:opacity-85"
@@ -110,15 +135,24 @@ export function App() {
         </p>
       )}
 
+      {view === 'overview' && (
+        <div className="min-h-0 flex-1 py-4 lg:overflow-y-auto">
+          <Overview
+            onOpenPitfall={openPitfall}
+            onPickTag={(tag) => {
+              setTags([tag])
+              setQ('')
+              setPanel(null)
+              setView('pitfalls')
+            }}
+            onOpenFeedback={() => setView('feedback')}
+          />
+        </div>
+      )}
+
       {view === 'feedback' && (
         <div className="min-h-0 flex-1 py-4 lg:overflow-y-auto">
-          <FeedbackPanel
-            onOpenPitfall={(id) => {
-              setView('pitfalls')
-              setStatus('all')
-              setPanel({ mode: 'view', id })
-            }}
-          />
+          <FeedbackPanel onOpenPitfall={openPitfall} />
         </div>
       )}
 
@@ -128,7 +162,7 @@ export function App() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="搜索标题、报错、方案……中英文都可以"
+            placeholder="搜索标题、报错、方案（条目为英文）"
             className="w-full shrink-0 rounded-md border border-line bg-surface px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-accent"
           />
           <div className="flex shrink-0 flex-wrap items-center gap-1">
@@ -237,15 +271,6 @@ function TokenGate({ onSubmit }: { onSubmit: (token: string) => void }) {
         />
         <button className="rounded-md bg-ink px-3 py-1.5 text-sm text-bg hover:opacity-85">进入</button>
       </form>
-    </div>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex items-baseline gap-1.5">
-      <dt>{label}</dt>
-      <dd className="text-sm text-ink">{value}</dd>
     </div>
   )
 }

@@ -19,7 +19,7 @@ Usage:
   pitfall import <file>                upsert from a JSON dump
   pitfall stats
   pitfall usage [--days 30]            what agents searched, opened and were pushed; misses and noise
-  pitfall eval-search <file>           score search on a query set: [{query, expect: id|null}]
+  pitfall eval-search <file>           score search on a query set: [{query, expect: id|null}]; kept for the web overview
   pitfall serve [--port 4477] [--host h] Web UI + JSON API (binds 127.0.0.1 by default)
   pitfall mcp                          MCP server over stdio (with PITFALL_HUB_URL: proxy to that server)
   pitfall hook <event>                 Claude Code hook handler (reads stdin)
@@ -186,8 +186,9 @@ export async function main(argv: string[]) {
       return out(r, formatUsageReport(r))
     }
     case 'eval-search': {
-      const { evaluateSearch } = await import('./core/search-eval.js')
+      const { evaluateSearch, saveEvalRun } = await import('./core/search-eval.js')
       const r = evaluateSearch(store, JSON.parse(readInput(positionals[0])))
+      saveEvalRun(store, r)
       const lines = [
         `answerable ${r.answerable}: recall@1 ${r.recallAt1}, recall@5 ${r.recallAt5}, MRR ${r.mrr}`,
         `unanswerable ${r.unanswerable}: ${r.noisy} returned something`,

@@ -1,5 +1,7 @@
 import type { PitfallStore } from './store.js'
-import type { Pitfall } from './types.js'
+import type { Pitfall, ReviewItem } from './types.js'
+
+export type { ReviewItem }
 
 // The review queue: active entries with evidence that they may be wrong, misleading or dead
 // weight. Age alone is never a reason (an unhit entry is not a wrong one); every rule needs
@@ -16,10 +18,6 @@ export const REVIEW_OPENED_UNHELPFUL = 5
 export const REVIEW_VERDICTS = ['keep', 'outdated', 'archived'] as const
 export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number]
 
-export interface ReviewItem {
-  pitfall: Pitfall
-  reasons: string[]
-}
 
 const DAY = 86_400_000
 

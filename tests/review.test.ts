@@ -106,7 +106,7 @@ describe('review migration', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'pf-')), 'old.db')
     store = new PitfallStore(openDatabase(path))
     const p = store.create({ title: 'a', solution: 'x' })
-    store.db.exec('ALTER TABLE pitfalls DROP COLUMN reviewed_at; ALTER TABLE pitfalls DROP COLUMN reviewed_hits; DROP TABLE usage_log; PRAGMA user_version = 2')
+    store.db.exec('ALTER TABLE pitfalls DROP COLUMN reviewed_at; ALTER TABLE pitfalls DROP COLUMN reviewed_hits; DROP TABLE usage_log; DROP TABLE eval_runs; PRAGMA user_version = 2')
     store.db.close()
     const raw = new DatabaseSync(path)
     expect((raw.prepare('PRAGMA user_version').get() as { user_version: number }).user_version).toBe(2)

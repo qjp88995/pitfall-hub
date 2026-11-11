@@ -91,6 +91,14 @@ const MIGRATIONS = [
   );
   CREATE INDEX usage_log_at ON usage_log(at);
   `,
+  // Results of `pitfall eval-search`, so search quality can be followed over time.
+  `
+  CREATE TABLE eval_runs (
+    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+    at           TEXT NOT NULL,
+    result       TEXT NOT NULL
+  );
+  `,
 ]
 
 export function openDatabase(path = defaultDbPath()): DatabaseSync {

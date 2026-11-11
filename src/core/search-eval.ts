@@ -1,5 +1,8 @@
 import { SEARCH_MIN_COVERAGE } from './relevance.js'
 import type { PitfallStore } from './store.js'
+import type { EvalResult, EvalRun } from './types.js'
+
+export type { EvalResult, EvalRun }
 
 /**
  * A query set: what an agent would type when it hits the problem, and the entry that answers it,
@@ -11,17 +14,6 @@ export interface EvalCase {
   expect: string | null
 }
 
-export interface EvalResult {
-  answerable: number
-  recallAt1: number
-  recallAt5: number
-  mrr: number
-  unanswerable: number
-  /** Unanswerable queries that still returned something. */
-  noisy: number
-  misses: { query: string; expect: string; got: string[] }[]
-  noise: { query: string; got: string[] }[]
-}
 
 export function evaluateSearch(store: PitfallStore, cases: EvalCase[], minCoverage = SEARCH_MIN_COVERAGE): EvalResult {
   const pos = cases.filter((c): c is EvalCase & { expect: string } => !!c.expect)
@@ -54,4 +46,15 @@ export function evaluateSearch(store: PitfallStore, cases: EvalCase[], minCovera
     misses,
     noise,
   }
+}
+
+
+export function saveEvalRun(store: PitfallStore, r: EvalResult): void {
+  store.db.prepare('INSERT INTO eval_runs (at, result) VALUES (?, ?)').run(new Date().toISOString(), JSON.stringify(r))
+}
+
+/** Newest first. */
+export function evalRuns(store: PitfallStore, limit = 10): EvalRun[] {
+  const rows = store.db.prepare('SELECT at, result FROM eval_runs ORDER BY seq DESC LIMIT ?').all(limit) as unknown as { at: string; result: string }[]
+  return rows.map((r) => ({ ...(JSON.parse(r.result) as EvalResult), at: r.at }))
 }

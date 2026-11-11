@@ -1,6 +1,15 @@
-import type { Pitfall, PitfallInput, PitfallPatch, SearchResult } from '../../src/core/types.ts'
+import type {
+  EvalRun,
+  Overview,
+  Pitfall,
+  PitfallInput,
+  PitfallPatch,
+  ReviewItem,
+  SearchResult,
+  UsageReport,
+} from '../../src/core/types.ts'
 
-export type { Pitfall, PitfallInput, PitfallPatch, SearchResult }
+export type { EvalRun, Overview, Pitfall, PitfallInput, PitfallPatch, ReviewItem, SearchResult, UsageReport }
 
 export interface Stats {
   total: number
@@ -50,6 +59,11 @@ export const api = {
   remove: (id: string) => request<null>(`/pitfalls/${id}`, { method: 'DELETE' }),
   tags: () => request<{ tag: string; count: number }[]>('/tags'),
   stats: () => request<Stats>('/stats'),
+  get: (id: string) => request<Pitfall>(`/pitfalls/${id}`),
+  overview: () => request<Overview>('/overview'),
+  usage: (days: number) => request<UsageReport>(`/usage?days=${days}`),
+  evalRuns: () => request<EvalRun[]>('/eval'),
+  review: (limit = 20) => request<{ items: ReviewItem[]; total: number }>(`/review?limit=${limit}`),
 }
 
 export type { Feedback, FeedbackStatus } from '../../src/core/types.ts'

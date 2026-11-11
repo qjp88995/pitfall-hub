@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { feedbackApi, type Feedback, type FeedbackStatus } from './api'
 
-const KIND_LABEL: Record<Feedback['kind'], string> = {
+export const KIND_LABEL: Record<Feedback['kind'], string> = {
   false_positive: '误报',
   missed: '漏检',
   bug: '缺陷',

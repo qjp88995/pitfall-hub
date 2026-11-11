@@ -7,7 +7,8 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { Hono, type Context, type Next } from 'hono'
 import { FEEDBACK_STATUSES, FeedbackStore, type FeedbackStatus } from '../core/feedback.js'
-import { matchAndLog } from '../core/usage.js'
+import { evalRuns } from '../core/search-eval.js'
+import { matchAndLog, usageReport } from '../core/usage.js'
 import { reviewQueue } from '../core/review.js'
 import type { PitfallStore } from '../core/store.js'
 import { STATUSES, type PitfallInput, type PitfallPatch, type PitfallStatus } from '../core/types.js'
@@ -103,11 +104,21 @@ export function createApp(store: PitfallStore, opts: AppOptions = {}) {
     const f = feedback.resolve(c.req.param('id'), status, resolution)
     return f ? c.json(f) : c.json({ error: 'not found' }, 404)
   })
+  app.get('/api/overview', (c) => c.json(store.overview()))
+  app.get('/api/usage', (c) => c.json(usageReport(store.db, Math.min(Math.max(Number(c.req.query('days') ?? 30) || 30, 1), 180))))
+  app.get('/api/eval', (c) => c.json(evalRuns(store, Number(c.req.query('limit') ?? 10))))
   app.get('/api/review', (c) => c.json(reviewQueue(store, { limit: Number(c.req.query('limit') ?? 20) })))
   app.post('/api/import', async (c) => c.json(store.importMany(await c.req.json())))
 
   if (existsSync(WEB_DIST)) {
     const root = relative(process.cwd(), WEB_DIST) || '.'
+    // Hashed bundles never change; index.html must be revalidated or browsers keep the old bundle
+    // after a deploy (no header means heuristic caching).
+    app.use('/*', async (c, next) => {
+      await next()
+      if (c.res.status !== 200 || c.req.path.startsWith('/api') || c.req.path === '/mcp') return
+      c.header('cache-control', c.req.path.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache')
+    })
     app.use('/*', serveStatic({ root }))
     app.get('*', serveStatic({ root, path: 'index.html' }))
   }

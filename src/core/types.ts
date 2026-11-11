@@ -106,3 +106,45 @@ export interface FeedbackInput {
   sourceProject?: string
   sourceAgent?: string
 }
+
+export interface Overview {
+  projects: { project: string; n: number }[]
+  tags: { tag: string; count: number }[]
+  active: { total: number; neverOpened: number; openedOnly: number; helpful: number; withSignature: number }
+  /** Creation times of non-archived entries, oldest first; bucketed by the client in its own time zone. */
+  createdAt: string[]
+}
+
+export type UsageKind = 'search' | 'open' | 'match' | 'helpful' | 'outdated' | 'irrelevant'
+
+export interface UsageReport {
+  days: number
+  /** When logging started, or null before the first event. */
+  since: string | null
+  counts: Partial<Record<UsageKind, number>>
+  searches: { total: number; empty: number; followedByOpen: number }
+  matches: { total: number; followedByOpen: number }
+  recentEmpty: { at: string; query: string; project: string }[]
+  recentUnopened: { at: string; query: string; project: string; total: number }[]
+}
+
+export interface EvalResult {
+  answerable: number
+  recallAt1: number
+  recallAt5: number
+  mrr: number
+  unanswerable: number
+  /** Unanswerable queries that still returned something. */
+  noisy: number
+  misses: { query: string; expect: string; got: string[] }[]
+  noise: { query: string; got: string[] }[]
+}
+
+export interface EvalRun extends EvalResult {
+  at: string
+}
+
+export interface ReviewItem {
+  pitfall: Pitfall
+  reasons: string[]
+}

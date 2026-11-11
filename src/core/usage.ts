@@ -1,13 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { matchErrorOutput, type ErrorMatch } from './match.js'
 import type { PitfallStore } from './store.js'
+import type { UsageKind, UsageReport } from './types.js'
+
+export type { UsageKind, UsageReport }
 
 /**
  * Retrieval events: searches (with what they returned), entries opened, failure matches pushed by
  * the hook, and feedback verdicts. Error output itself is never stored (it can carry secrets);
  * search queries are, since agents type them on purpose.
  */
-export type UsageKind = 'search' | 'open' | 'match' | 'helpful' | 'outdated' | 'irrelevant'
 
 export interface UsageEvent {
   kind: UsageKind
@@ -49,14 +51,6 @@ interface Row {
   project: string
 }
 
-export interface UsageReport {
-  days: number
-  counts: Partial<Record<UsageKind, number>>
-  searches: { total: number; empty: number; followedByOpen: number }
-  matches: { total: number; followedByOpen: number }
-  recentEmpty: { at: string; query: string; project: string }[]
-  recentUnopened: { at: string; query: string; project: string; total: number }[]
-}
 
 export function usageReport(db: DatabaseSync, days = 30): UsageReport {
   const since = new Date(Date.now() - days * 86_400_000).toISOString()
@@ -72,8 +66,10 @@ export function usageReport(db: DatabaseSync, days = 30): UsageReport {
   const searches = rows.filter((r) => r.kind === 'search')
   const matches = rows.filter((r) => r.kind === 'match')
   const pick = (r: Row) => ({ at: r.at.slice(0, 16), query: r.query, project: r.project })
+  const first = db.prepare('SELECT min(at) AS at FROM usage_log').get() as { at: string | null }
   return {
     days,
+    since: first.at,
     counts,
     searches: { total: searches.length, empty: searches.filter((r) => !r.total).length, followedByOpen: searches.filter(followed).length },
     matches: { total: matches.length, followedByOpen: matches.filter(followed).length },

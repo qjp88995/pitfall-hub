@@ -431,3 +431,21 @@ describe('entry language', () => {
     expect(isMostlyCjk('CJK text wraps differently in PowerPoint: 禁则 rules')).toBe(false)
   })
 })
+
+describe('overview data', () => {
+  it('summarises sources, use and eval runs', async () => {
+    const a = store.create({ title: 'a', solution: 'x', tags: ['docker'], sourceProject: 'p1', errorSignature: 'some distinctive line' })
+    store.create({ title: 'b', solution: 'x', tags: ['docker', 'pnpm'], sourceProject: 'p2' })
+    store.get(a.id, { trackHit: true })
+    store.feedback(a.id, 'helpful')
+    const o = store.overview()
+    expect(o.projects).toEqual([{ project: 'p1', n: 1 }, { project: 'p2', n: 1 }])
+    expect(o.tags[0]).toEqual({ tag: 'docker', count: 2 })
+    expect(o.active).toEqual({ total: 2, neverOpened: 1, openedOnly: 0, helpful: 1, withSignature: 1 })
+    expect(o.createdAt).toHaveLength(2)
+
+    const { evaluateSearch, evalRuns, saveEvalRun } = await import('../src/core/search-eval.js')
+    saveEvalRun(store, evaluateSearch(store, [{ query: 'nothing like this', expect: null }]))
+    expect(evalRuns(store)[0]).toMatchObject({ unanswerable: 1, noisy: 0 })
+  })
+})

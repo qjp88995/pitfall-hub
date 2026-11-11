@@ -10,6 +10,7 @@ import {
   type PitfallPatch,
   type SearchHit,
   type SearchOptions,
+  type Overview,
   type SearchResult,
 } from './types.js'
 
@@ -298,6 +299,31 @@ export class PitfallStore {
       )
       .all() as unknown as { project: string; n: number }[]
     return { ...totals, byStatus: Object.fromEntries(byStatus.map((s) => [s.status, s.n])), projects }
+  }
+
+  /** What the web overview charts: where entries come from, how they have been used, when they were added. */
+  overview(): Overview {
+    const live = "status != 'archived'"
+    const projects = this.db
+      .prepare(`SELECT source_project AS project, count(*) AS n FROM pitfalls WHERE ${live} GROUP BY source_project ORDER BY n DESC, project`)
+      .all() as unknown as { project: string; n: number }[]
+    const use = this.db
+      .prepare(
+        `SELECT count(*) AS total,
+           sum(hit_count = 0) AS neverOpened,
+           sum(hit_count > 0 AND helpful_count = 0) AS openedOnly,
+           sum(helpful_count > 0) AS helpful,
+           sum(error_signature != '') AS withSignature
+         FROM pitfalls WHERE status = 'active'`,
+      )
+      .get() as Record<keyof Overview['active'], number | null>
+    const created = this.db.prepare(`SELECT created_at AS at FROM pitfalls WHERE ${live} ORDER BY created_at`).all() as unknown as { at: string }[]
+    return {
+      projects: projects.map((p) => ({ project: p.project || '(none)', n: p.n })),
+      tags: this.tags(),
+      active: Object.fromEntries(Object.entries(use).map(([k, v]) => [k, v ?? 0])) as Overview['active'],
+      createdAt: created.map((r) => r.at),
+    }
   }
 
   exportAll(): Pitfall[] {
