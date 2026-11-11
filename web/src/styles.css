@@ -2,7 +2,8 @@
 
 @theme {
   --font-sans: 'Inter', ui-sans-serif, system-ui, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  /* Windows has none of the first four; Chrome's generic monospace there is NSimSun in a CJK locale. */
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, 'Cascadia Mono', Consolas, monospace;
 
   --color-bg: #f6f5f1;
   --color-surface: #ffffff;

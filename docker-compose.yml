@@ -1,6 +1,6 @@
-# LOCAL compose file. Host port mapping lives only in docker-compose.override.yml
-# (copy the .example); agents in the workspace container reach the service with
-# `docker exec -i pitfall-hub pitfall mcp|rpc`, which needs no port at all.
+# LOCAL compose file (offline dev / previewing the Web UI). The Web UI is served through the
+# machine's shared Traefik (~/workspace/projects/local-gateway) at http://pitfall-hub.localhost;
+# no host port is mapped. Agents can also reach it with `docker exec -i pitfall-hub pitfall mcp|rpc`.
 # Production: docker/docker-compose.prod.yml.example.
 name: ${COMPOSE_PROJECT_NAME:-pitfall-hub}
 
@@ -9,18 +9,36 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      # pnpm install in a bridge-network build stalls on this machine (WSL2 + extra NAT layer).
+      network: host
     image: ${COMPOSE_PROJECT_NAME:-pitfall-hub}:latest
     # Stable name: hooks and the MCP registration address the container by it.
     container_name: ${COMPOSE_PROJECT_NAME:-pitfall-hub}
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      # Optional locally; when set, the UI asks for it and /api + /mcp require it.
-      PITFALL_HUB_TOKEN: ${PITFALL_HUB_TOKEN:-}
-      # Only reachable through docker exec or the loopback port in the override.
+      # Optional locally; when set, the UI asks for it and /api + /mcp require it. Not
+      # PITFALL_HUB_TOKEN: .env holds the hosted server's token for the client container.
+      PITFALL_HUB_TOKEN: ${PITFALL_HUB_LOCAL_TOKEN:-}
+      # Only reachable through docker exec or the local gateway (*.localhost).
       PITFALL_HUB_ALLOW_NO_AUTH: '1'
     volumes:
       - pitfall-data:/data
+    networks:
+      - gateway
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=gateway
+      - local-gateway.title=Pitfall Hub
+      - local-gateway.description=Cross-project pitfall knowledge base (local copy)
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME:-pitfall-hub}.rule=Host(`${APP_HOST:-pitfall-hub.localhost}`)
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME:-pitfall-hub}.entrypoints=web
+      - traefik.http.services.${COMPOSE_PROJECT_NAME:-pitfall-hub}.loadbalancer.server.port=4477
 
 volumes:
   pitfall-data:
+
+networks:
+  # Created by the shared local gateway (~/workspace/projects/local-gateway).
+  gateway:
+    external: true
