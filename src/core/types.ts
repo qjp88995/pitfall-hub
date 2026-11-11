@@ -63,6 +63,8 @@ export interface SearchOptions {
   project?: string
   limit?: number
   offset?: number
+  /** Drop hits whose relevance coverage is below this (see core/relevance.ts). */
+  minCoverage?: number
 }
 
 export interface SearchHit extends Pitfall {

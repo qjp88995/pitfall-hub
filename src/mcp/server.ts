@@ -6,13 +6,15 @@ import { formatErrorMatches, formatFull, formatSearch, oneLine } from '../core/f
 import { isDistinctiveSignature, matchErrorOutput, similarEntries } from '../core/match.js'
 import { FEEDBACK_KINDS, FEEDBACK_STATUSES, FeedbackStore } from '../core/feedback.js'
 import { REVIEW_VERDICTS, reviewPitfall, reviewQueue } from '../core/review.js'
+import { SEARCH_MIN_COVERAGE } from '../core/relevance.js'
 import type { PitfallStore } from '../core/store.js'
+import { logUsage } from '../core/usage.js'
 import { SEVERITIES, STATUSES, type PitfallPatch } from '../core/types.js'
 
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }], isError })
 
 const fields = {
-  title: z.string().describe('Short, searchable statement of the problem, e.g. "pnpm v10 skips sharp build scripts"'),
+  title: z.string().describe('Short, searchable statement of the problem, in English, e.g. "pnpm v10 skips sharp build scripts"'),
   symptom: z.string().optional().describe('What was observed. Paste the key error lines verbatim.'),
   cause: z.string().optional().describe('Root cause, once understood.'),
   solution: z.string().describe('What actually fixed it (markdown, include exact commands/config).'),
@@ -46,17 +48,26 @@ export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
     'search_pitfalls',
     {
       description:
-        'Search the cross-project pitfall knowledge base (pitfalls previously hit and solved in any project). Use before debugging an unfamiliar error, before touching tooling/config you have had trouble with, or when starting work with a library. Accepts keywords, Chinese or English, or pasted error text.',
+        'Search the cross-project pitfall knowledge base (pitfalls previously hit and solved in any project). Use before debugging an unfamiliar error, before touching tooling/config you have had trouble with, or when starting work with a library. Entries are written in English: query in English with the tool/library name and what you observe (e.g. "pptxgenjs chinese text wrong font"), or paste the distinctive error line. Returns only entries that cover most of the query, so an empty result means nothing relevant is recorded.',
       inputSchema: {
-        query: z.string().describe('Keywords or error text'),
+        query: z.string().describe('English keywords (tool/library + observed behaviour) or a distinctive error line'),
         tags: z.array(z.string()).optional().describe('Only entries with at least one of these tags'),
         include_outdated: z.boolean().optional(),
         limit: z.number().int().min(1).max(50).optional(),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ query, tags, include_outdated, limit }) =>
-      text(formatSearch(store.search({ q: query, tags, limit: limit ?? 8, status: include_outdated ? ['active', 'outdated'] : ['active'] }), query)),
+    async ({ query, tags, include_outdated, limit }) => {
+      const r = store.search({
+        q: query,
+        tags,
+        limit: limit ?? 8,
+        status: include_outdated ? ['active', 'outdated'] : ['active'],
+        minCoverage: SEARCH_MIN_COVERAGE,
+      })
+      logUsage(store.db, { kind: 'search', query, ids: r.items.map((p) => p.id), total: r.total, project: opts.defaultProject, agent: agent() })
+      return text(formatSearch(r, query))
+    },
   )
 
   server.registerTool(
@@ -69,6 +80,7 @@ export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
     },
     async ({ output }) => {
       const matches = matchErrorOutput(store, output)
+      logUsage(store.db, { kind: 'match', ids: matches.map((m) => m.pitfall.id), project: opts.defaultProject, agent: agent() })
       return text(matches.length ? formatErrorMatches(matches) : 'No known pitfall matches this output.')
     },
   )
@@ -81,6 +93,7 @@ export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
     },
     async ({ id }) => {
       const p = store.get(id, { trackHit: true })
+      if (p) logUsage(store.db, { kind: 'open', ids: [id], project: opts.defaultProject, agent: agent() })
       return p ? text(formatFull(p)) : text(`No pitfall ${id}`, true)
     },
   )
@@ -107,8 +120,11 @@ export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
         error_signature && !isDistinctiveSignature(error_signature)
           ? [`Note: error_signature "${error_signature}" is too generic once numbers/paths are stripped, so it will not be used for auto-matching. Update it with a more specific line if one exists.`]
           : []
+      const language = isMostlyCjk(p.title)
+        ? [`Note: write entries in English (search is English-only; agents query in English). Rewrite this one with update_pitfall, keeping quoted error text verbatim.`]
+        : []
       return text(
-        [`Recorded ${p.id}: ${p.title}`, ...weakSig, ...(similar.length ? ['Similar existing entries (merge if they are the same issue):', ...similar.map((s) => oneLine(s))] : [])].join('\n'),
+        [`Recorded ${p.id}: ${p.title}`, ...weakSig, ...language, ...(similar.length ? ['Similar existing entries (merge if they are the same issue):', ...similar.map((s) => oneLine(s))] : [])].join('\n'),
       )
     },
   )
@@ -150,6 +166,7 @@ export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
     async ({ id, kind, note, project }) => {
       const current = store.get(id)
       if (!current) return text(`No pitfall ${id}`, true)
+      logUsage(store.db, { kind, ids: [id], project: project ?? opts.defaultProject, agent: agent() })
       if (kind === 'irrelevant') {
         const { feedback, duplicate } = feedbackStore.report({
           kind: 'false_positive',
@@ -273,4 +290,15 @@ export function createMcpServer(store: PitfallStore, opts: McpOptions = {}) {
 export async function runMcpServer(store: PitfallStore) {
   const defaultProject = process.env.PITFALL_PROJECT || basename(process.env.CLAUDE_PROJECT_DIR || process.cwd())
   await createMcpServer(store, { defaultProject }).connect(new StdioServerTransport())
+}
+
+/**
+ * Prose written in CJK: at least as many Han characters as Latin words, ignoring quoted error
+ * text, code and parentheses, which may stay in their original language.
+ */
+export function isMostlyCjk(s: string): boolean {
+  const prose = s.replace(/```[\s\S]*?```|`[^`]*`|"[^"]*"|“[^”]*”|「[^」]*」|\([^)]*\)|（[^）]*）/g, ' ')
+  const han = prose.match(/\p{Script=Han}/gu)?.length ?? 0
+  const words = prose.match(/[a-z]{2,}/gi)?.length ?? 0
+  return han > 0 && han >= words
 }

@@ -77,6 +77,20 @@ const MIGRATIONS = [
   ALTER TABLE pitfalls ADD COLUMN reviewed_at TEXT;
   ALTER TABLE pitfalls ADD COLUMN reviewed_hits INTEGER NOT NULL DEFAULT 0;
   `,
+  // What agents search for and open, to measure retrieval on real use instead of guesses.
+  `
+  CREATE TABLE usage_log (
+    seq     INTEGER PRIMARY KEY AUTOINCREMENT,
+    at      TEXT NOT NULL,
+    kind    TEXT NOT NULL,
+    query   TEXT NOT NULL DEFAULT '',
+    ids     TEXT NOT NULL DEFAULT '[]',
+    total   INTEGER NOT NULL DEFAULT 0,
+    project TEXT NOT NULL DEFAULT '',
+    agent   TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX usage_log_at ON usage_log(at);
+  `,
 ]
 
 export function openDatabase(path = defaultDbPath()): DatabaseSync {

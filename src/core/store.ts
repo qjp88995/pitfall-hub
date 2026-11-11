@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
 import { fallbackTerms, normalizeSignature, normalizeTags, parseQuery } from './query.js'
+import { Relevance } from './relevance.js'
 import {
   SEVERITIES,
   STATUSES,
@@ -53,8 +54,26 @@ const COLUMNS = {
 const BM25 = 'bm25(pitfalls_fts, 10, 5, 2, 2, 1, 6, 8, 1)'
 const LIKE_FIELDS = ['title', 'symptom', 'cause', 'solution', 'tags', 'error_signature']
 
+// Candidates fetched before coverage filtering; the index ORs terms, so the true hits are near the top.
+const COVERAGE_CANDIDATES = 100
+
 export class PitfallStore {
+  private relevanceCache: { key: string; value: Relevance } | null = null
+
   constructor(readonly db: DatabaseSync) {}
+
+  /** Term statistics over non-archived entries, rebuilt when any entry is added, changed or removed. */
+  relevance(): Relevance {
+    const { n, seq, at } = this.db
+      .prepare("SELECT count(*) AS n, max(seq) AS seq, max(updated_at) AS at FROM pitfalls WHERE status != 'archived'")
+      .get() as { n: number; seq: number | null; at: string | null }
+    const key = `${n}|${seq}|${at}`
+    if (this.relevanceCache?.key !== key) {
+      const rows = this.db.prepare("SELECT * FROM pitfalls WHERE status != 'archived'").all() as unknown as Row[]
+      this.relevanceCache = { key, value: new Relevance(rows.map(toPitfall)) }
+    }
+    return this.relevanceCache.value
+  }
 
   create(input: PitfallInput): Pitfall {
     const now = new Date().toISOString()
@@ -127,6 +146,17 @@ export class PitfallStore {
   }
 
   search(opts: SearchOptions = {}): SearchResult {
+    const q = opts.q?.trim()
+    if (!opts.minCoverage || !q) return this.rankedSearch(opts)
+    const min = opts.minCoverage
+    const limit = clamp(opts.limit ?? 10, 1, 200)
+    const offset = Math.max(0, opts.offset ?? 0)
+    const rel = this.relevance()
+    const kept = this.rankedSearch({ ...opts, limit: COVERAGE_CANDIDATES, offset: 0 }).items.filter((p) => rel.coverage(q, p) >= min)
+    return { items: kept.slice(offset, offset + limit), total: kept.length }
+  }
+
+  private rankedSearch(opts: SearchOptions): SearchResult {
     const limit = clamp(opts.limit ?? 10, 1, 200)
     const offset = Math.max(0, opts.offset ?? 0)
     const where: string[] = []

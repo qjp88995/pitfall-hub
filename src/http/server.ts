@@ -7,7 +7,7 @@ import { serveStatic } from '@hono/node-server/serve-static'
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 import { Hono, type Context, type Next } from 'hono'
 import { FEEDBACK_STATUSES, FeedbackStore, type FeedbackStatus } from '../core/feedback.js'
-import { matchErrorOutput } from '../core/match.js'
+import { matchAndLog } from '../core/usage.js'
 import { reviewQueue } from '../core/review.js'
 import type { PitfallStore } from '../core/store.js'
 import { STATUSES, type PitfallInput, type PitfallPatch, type PitfallStatus } from '../core/types.js'
@@ -57,8 +57,8 @@ export function createApp(store: PitfallStore, opts: AppOptions = {}) {
 
   // Used by host-side Claude Code hooks when the database lives in a container.
   app.post('/api/match', async (c) => {
-    const { output, context } = await c.req.json<{ output: string; context?: string[] }>()
-    return c.json(matchErrorOutput(store, output ?? '', { context: Array.isArray(context) ? context : undefined }))
+    const { output, context, project } = await c.req.json<{ output: string; context?: string[]; project?: string }>()
+    return c.json(matchAndLog(store, output ?? '', { context, project }))
   })
   app.post('/api/relevant', async (c) => {
     const { tags, limit } = await c.req.json<{ tags: string[]; limit?: number }>()

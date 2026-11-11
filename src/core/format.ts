@@ -10,7 +10,12 @@ export function oneLine(p: Pitfall, extra = ''): string {
 }
 
 export function formatSearch(r: SearchResult, query: string): string {
-  if (!r.items.length) return `No pitfalls found for "${query}".`
+  if (!r.items.length) {
+    const hint = /\p{Script=Han}/u.test(query)
+      ? ' Entries are written in English: retry with English keywords (tool/library name + what you observe).'
+      : ' Nothing recorded covers this; if you solve it and it would recur elsewhere, record_pitfall.'
+    return `No pitfalls found for "${query}".${hint}`
+  }
   const head = `${r.total} pitfall(s) for "${query}"${r.total > r.items.length ? `, showing ${r.items.length}` : ''}. Use get_pitfall for details.`
   return [head, ...r.items.map((p) => oneLine(p))].join('\n')
 }

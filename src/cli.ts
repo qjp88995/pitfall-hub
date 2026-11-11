@@ -18,6 +18,8 @@ Usage:
   pitfall export [file]                JSON dump (stdout by default)
   pitfall import <file>                upsert from a JSON dump
   pitfall stats
+  pitfall usage [--days 30]            what agents searched, opened and were pushed; misses and noise
+  pitfall eval-search <file>           score search on a query set: [{query, expect: id|null}]
   pitfall serve [--port 4477] [--host h] Web UI + JSON API (binds 127.0.0.1 by default)
   pitfall mcp                          MCP server over stdio (with PITFALL_HUB_URL: proxy to that server)
   pitfall hook <event>                 Claude Code hook handler (reads stdin)
@@ -55,6 +57,7 @@ export async function main(argv: string[]) {
       signature: { type: 'string' },
       severity: { type: 'string' },
       project: { type: 'string' },
+      days: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   })
@@ -93,13 +96,13 @@ export async function main(argv: string[]) {
   if (remoteUrl && cmd === 'rpc') {
     const { remoteBackend } = await import('./hooks/claude.js')
     const backend = remoteBackend(remoteUrl, process.env.PITFALL_HUB_TOKEN, 10_000)
-    const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string; context?: string[] }
+    const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string; context?: string[]; project?: string }
     const method = positionals[0]
     const result =
       method === 'relevant'
         ? await backend.relevant(body.tags ?? [], body.limit ?? 8)
         : method === 'match'
-          ? await backend.match(body.output ?? '', body.context)
+          ? await backend.match(body.output ?? '', { context: body.context, project: body.project })
           : method === 'issues'
             ? await backend.openIssues(body.limit ?? 10)
             : method === 'review'
@@ -177,9 +180,25 @@ export async function main(argv: string[]) {
           .join('\n'),
       )
     }
+    case 'usage': {
+      const { formatUsageReport, usageReport } = await import('./core/usage.js')
+      const r = usageReport(store.db, Number(v.days ?? 30))
+      return out(r, formatUsageReport(r))
+    }
+    case 'eval-search': {
+      const { evaluateSearch } = await import('./core/search-eval.js')
+      const r = evaluateSearch(store, JSON.parse(readInput(positionals[0])))
+      const lines = [
+        `answerable ${r.answerable}: recall@1 ${r.recallAt1}, recall@5 ${r.recallAt5}, MRR ${r.mrr}`,
+        `unanswerable ${r.unanswerable}: ${r.noisy} returned something`,
+        ...r.misses.map((m) => `  miss: ${m.query} → want ${m.expect}, got ${m.got.join(', ') || 'nothing'}`),
+        ...r.noise.map((n) => `  noise: ${n.query} → ${n.got.join(', ')}`),
+      ]
+      return out(r, lines.join('\n'))
+    }
     case 'rpc': {
       // JSON in, JSON out; the transport for hooks running outside the container (docker exec).
-      const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string; context?: string[] }
+      const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string; context?: string[]; project?: string }
       if (positionals[0] === 'relevant') return console.log(JSON.stringify(store.relevantForTags(body.tags ?? [], body.limit)))
       if (positionals[0] === 'issues') {
         const { FeedbackStore } = await import('./core/feedback.js')
@@ -190,8 +209,8 @@ export async function main(argv: string[]) {
         return console.log(JSON.stringify(reviewQueue(store, { limit: body.limit })))
       }
       if (positionals[0] === 'match') {
-        const { matchErrorOutput } = await import('./core/match.js')
-        return console.log(JSON.stringify(matchErrorOutput(store, body.output ?? '', { context: body.context })))
+        const { matchAndLog } = await import('./core/usage.js')
+        return console.log(JSON.stringify(matchAndLog(store, body.output ?? '', { context: body.context, project: body.project })))
       }
       return fail(`Unknown rpc method "${positionals[0]}"`)
     }

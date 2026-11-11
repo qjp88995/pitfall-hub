@@ -18,6 +18,9 @@ confident matches — search explicitly when in doubt.
 - **About to do something with a history of traps** (package manager / build config, native
   modules, Docker, WSL paths, auth, CI, version upgrades, a library I rarely use) →
   \`search_pitfalls\` with the tool/library name.
+- Query in **English** (entries are English): the tool/library name plus what I observe, e.g.
+  \`pptxgenjs chinese text wrong font\`, or the distinctive error line. Search returns only entries
+  that cover most of the query, so an empty result means nothing is recorded — not "try synonyms".
 - A surfaced entry is a hint, not a fact: check its environment/versions against this project.
   Then call \`pitfall_feedback\`: \`helpful\` if it applied, \`outdated\` (with a note) if it no
   longer holds.
@@ -47,7 +50,8 @@ How to write a good entry:
   (\`list_pitfall_tags\`).
 - **environment**: versions and OS it was seen on.
 - **project**: the current project's directory name.
-- Write in the user's language; keep error text and identifiers verbatim.
+- Write in **English** whatever language the conversation is in (search is English-only); keep
+  error text and identifiers verbatim, including localized error messages.
 
 \`record_pitfall\` refuses exact duplicates and returns the existing entry — then use
 \`update_pitfall\` with \`append_note\` for the new variant instead of creating a near-copy.

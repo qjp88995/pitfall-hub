@@ -4,10 +4,11 @@ import { dirname, join } from 'node:path'
 import { defaultDbPath } from '../core/db.js'
 import { ENVIRONMENT_TAGS, fingerprint } from '../core/fingerprint.js'
 import { formatErrorMatches, oneLine } from '../core/format.js'
-import { commandContext, matchErrorOutput, type ErrorMatch } from '../core/match.js'
+import { commandContext, type ErrorMatch } from '../core/match.js'
 import { reviewQueue, type ReviewItem } from '../core/review.js'
 import type { PitfallStore } from '../core/store.js'
 import { FeedbackStore, type Feedback } from '../core/feedback.js'
+import { matchAndLog, type MatchRequest } from '../core/usage.js'
 import type { Pitfall } from '../core/types.js'
 
 // Claude Code hook handlers. Each reads the hook JSON from stdin and returns the JSON to print
@@ -34,7 +35,7 @@ interface SessionState {
 export interface HookBackend {
   relevant(tags: string[], limit: number): Promise<{ items: (Pitfall & { matchedTags: string[] })[]; total: number }>
   /** `context`: stack tags and command words; terms matches need an entry tag among them. */
-  match(output: string, context?: string[]): Promise<ErrorMatch[]>
+  match(output: string, opts?: MatchRequest): Promise<ErrorMatch[]>
   openIssues(limit: number): Promise<{ items: Feedback[]; total: number }>
   reviewQueue(limit: number): Promise<{ items: ReviewItem[]; total: number }>
 }
@@ -45,7 +46,7 @@ const PLATFORM_PROJECT = 'pitfall-hub'
 export function localBackend(store: PitfallStore): HookBackend {
   return {
     relevant: async (tags, limit) => store.relevantForTags(tags, limit),
-    match: async (output, context) => matchErrorOutput(store, output, { context }),
+    match: async (output, opts) => matchAndLog(store, output, opts),
     openIssues: async (limit) => new FeedbackStore(store.db).list({ limit }),
     reviewQueue: async (limit) => reviewQueue(store, { limit }),
   }
@@ -64,7 +65,7 @@ export function remoteBackend(baseUrl: string, token?: string, timeoutMs = 3000)
   }
   return {
     relevant: (tags, limit) => post('/api/relevant', { tags, limit }),
-    match: (output, context) => post('/api/match', { output, context }),
+    match: (output, opts) => post('/api/match', { output, ...opts }),
     openIssues: (limit) => post(`/api/feedback?limit=${limit}`),
     reviewQueue: (limit) => post(`/api/review?limit=${limit}`),
   }
@@ -88,7 +89,7 @@ export function dockerBackend(container: string, timeoutMs = 5000): HookBackend 
     })
   return {
     relevant: (tags, limit) => rpc('relevant', { tags, limit }),
-    match: (output, context) => rpc('match', { output, context }),
+    match: (output, opts) => rpc('match', { output, ...opts }),
     openIssues: (limit) => rpc('issues', { limit }),
     reviewQueue: (limit) => rpc('review', { limit }),
   }
@@ -174,7 +175,8 @@ async function toolFailure(input: HookInput, backend: HookBackend) {
   updateSession(input.session_id, (s) => ({ ...s, failures: s.failures + 1 }))
   const output = collectText(input.error) + '\n' + collectText(input.tool_response)
   if (output.trim().length < 10) return null
-  const matches = await backend.match(output, failureContext(input))
+  const fp = fingerprint(input.cwd || process.cwd())
+  const matches = await backend.match(output, { context: failureContext(fp.tags, input), project: fp.name })
   if (!matches.length) return null
   return {
     hookSpecificOutput: { hookEventName: input.hook_event_name ?? 'PostToolUseFailure', additionalContext: formatErrorMatches(matches) },
@@ -186,8 +188,8 @@ async function toolFailure(input: HookInput, backend: HookBackend) {
  * failed command's words, so a docker entry can still match `docker compose up` run from a
  * project with no Docker files.
  */
-function failureContext(input: HookInput): string[] {
-  const stack = fingerprint(input.cwd || process.cwd()).tags.filter((t) => !ENVIRONMENT_TAGS.has(t))
+function failureContext(tags: string[], input: HookInput): string[] {
+  const stack = tags.filter((t) => !ENVIRONMENT_TAGS.has(t))
   const command = (input.tool_input as { command?: unknown } | undefined)?.command
   return [...stack, ...(typeof command === 'string' ? commandContext(command) : [])]
 }

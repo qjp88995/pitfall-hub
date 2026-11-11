@@ -344,3 +344,90 @@ describe('failure context', () => {
     expect(commandContext('cd /repo && ./node_modules/.bin/eslint src/ --fix')).toEqual(expect.arrayContaining(['eslint', 'cd', 'src']))
   })
 })
+
+describe('search coverage filter', () => {
+  const seed = () => {
+    const font = store.create({
+      title: 'pptxgenjs: CJK text falls back to the wrong font in PowerPoint',
+      symptom: 'Chinese text renders in SimSun instead of the theme font; Latin text is fine.',
+      solution: 'Set the ea font (lang zh-CN) on every run.',
+      tags: ['pptxgenjs', 'powerpoint', 'cjk', 'node'],
+    })
+    store.create({
+      title: 'prettier --write on a src dir reformats generated files',
+      symptom: 'node script; git diff shows formatting changes in files that should not be touched by the module build.',
+      solution: 'Add them to .prettierignore',
+      tags: ['prettier', 'node'],
+    })
+    store.create({
+      title: 'Docker bridge network: pnpm install hangs inside docker build',
+      symptom: 'ERR_PNPM_META_FETCH_FAIL / UND_ERR_SOCKET after 30 s during docker build.',
+      solution: 'docker build --network host',
+      tags: ['docker', 'pnpm'],
+    })
+    return font
+  }
+
+  it('keeps entries that cover the query and drops ones that only share common words', () => {
+    const font = seed()
+    const hit = store.search({ q: 'pptxgenjs chinese text wrong font', minCoverage: 0.5 })
+    expect(hit.items.map((p) => p.id)).toEqual([font.id])
+    // Without the filter the OR-ed index returns the unrelated node entries too.
+    expect(store.search({ q: 'node vitest vi.mock module not applied' }).total).toBeGreaterThan(0)
+    expect(store.search({ q: 'node vitest vi.mock module not applied', minCoverage: 0.5 }).items).toEqual([])
+  })
+
+  it('rebuilds term statistics when entries change', () => {
+    seed()
+    expect(store.search({ q: 'vitest vi.mock hoisting', minCoverage: 0.5 }).items).toEqual([])
+    const p = store.create({ title: 'vitest vi.mock is hoisted above imports', solution: 'use vi.hoisted', tags: ['vitest'] })
+    expect(store.search({ q: 'vitest vi.mock hoisting', minCoverage: 0.5 }).items.map((x) => x.id)).toEqual([p.id])
+  })
+
+  it('scores a query set', async () => {
+    const font = seed()
+    const { evaluateSearch } = await import('../src/core/search-eval.js')
+    const r = evaluateSearch(store, [
+      { query: 'pptxgenjs chinese text wrong font', expect: font.id },
+      { query: 'nginx 413 request entity too large', expect: null },
+    ])
+    expect(r).toMatchObject({ answerable: 1, recallAt1: 1, unanswerable: 1, noisy: 0 })
+  })
+})
+
+describe('usage log', () => {
+  it('reports searches with no result and whether results were opened', async () => {
+    const { logUsage, usageReport } = await import('../src/core/usage.js')
+    logUsage(store.db, { kind: 'search', query: 'a b', ids: ['pf_1'], total: 1, project: 'x' })
+    logUsage(store.db, { kind: 'open', ids: ['pf_1'], project: 'x' })
+    logUsage(store.db, { kind: 'search', query: 'nothing here', ids: [], total: 0, project: 'x' })
+    const r = usageReport(store.db)
+    expect(r.searches).toEqual({ total: 2, empty: 1, followedByOpen: 1 })
+    expect(r.recentEmpty.map((e) => e.query)).toEqual(['nothing here'])
+  })
+
+  it('logs MCP searches and opens', async () => {
+    const font = store.create({ title: 'pptxgenjs CJK font fallback', solution: 'x', tags: ['pptxgenjs'] })
+    const [client, server] = InMemoryTransport.createLinkedPair()
+    await createMcpServer(store, { defaultProject: 'proj' }).connect(server)
+    const c = new Client({ name: 't', version: '0' })
+    await c.connect(client)
+    await c.callTool({ name: 'search_pitfalls', arguments: { query: 'pptxgenjs font fallback' } })
+    await c.callTool({ name: 'get_pitfall', arguments: { id: font.id } })
+    const res = (await c.callTool({ name: 'search_pitfalls', arguments: { query: 'pptxgenjs 中文字体不对' } })) as { content: { text: string }[] }
+    expect(res.content[0]!.text).toContain('English')
+    const rows = store.db.prepare('SELECT kind, project FROM usage_log ORDER BY seq').all() as { kind: string; project: string }[]
+    expect(rows.map((r) => r.kind)).toEqual(['search', 'open', 'search'])
+    expect(rows.every((r) => r.project === 'proj')).toBe(true)
+  })
+})
+
+describe('entry language', () => {
+  it('flags titles written in CJK but not English titles quoting localized errors', async () => {
+    const { isMostlyCjk } = await import('../src/mcp/server.js')
+    expect(isMostlyCjk('pkill -f <pattern> 把执行它的 shell 自己也杀掉（退出码 144）')).toBe(true)
+    expect(isMostlyCjk('在 safe-proxy workspace 容器里访问兄弟 Docker 容器：容器名被 Mihomo fake-ip 劫持')).toBe(true)
+    expect(isMostlyCjk('Encrypted PDF: Edge says "Couldn\'t open this file" (无法打开此文件 / 出错了) before the prompt')).toBe(false)
+    expect(isMostlyCjk('CJK text wraps differently in PowerPoint: 禁则 rules')).toBe(false)
+  })
+})
