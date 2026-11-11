@@ -1,4 +1,4 @@
-import { normalizeSignature } from './query.js'
+import { normalizeSignature, normalizeTags } from './query.js'
 import type { PitfallStore } from './store.js'
 import type { Pitfall } from './types.js'
 
@@ -51,8 +51,14 @@ export function isDistinctiveSignature(signature: string): boolean {
  *     a quarter, or 2+ covering half. Plain words only: 4+ covering 40%. Output with no error-looking line at all (a command that failed
  *     silently after printing routine logs or NOTICEs) needs 2+ identifier-like tokens instead, since
  *     its words are just whatever the command printed ("migrations", "complete", "routine").
+ *     With a `context` (the project's stack tags plus the words of the failed command), a terms
+ *     match also needs one of the entry's tags in it: an eslint failure in a project without Docker
+ *     must not pull in a Docker entry because both texts say "type" and "data". Signature matches
+ *     are exact and need no context.
  */
-export function matchErrorOutput(store: PitfallStore, output: string, limit = 3): ErrorMatch[] {
+export function matchErrorOutput(store: PitfallStore, output: string, opts: { limit?: number; context?: string[] } = {}): ErrorMatch[] {
+  const limit = opts.limit ?? 3
+  const context = opts.context ? new Set(normalizeTags(opts.context)) : null
   const text = output.length > 20_000 ? output.slice(0, 4_000) + '\n' + output.slice(-16_000) : output
   const normalized = normalizeSignature(text)
   const results: ErrorMatch[] = []
@@ -72,6 +78,7 @@ export function matchErrorOutput(store: PitfallStore, output: string, limit = 3)
     const { items } = store.search({ q: tokens.join(' '), limit: 10 })
     for (const p of items) {
       if (seen.has(p.id)) continue
+      if (context && !p.tags.some((t) => context.has(t))) continue
       const hay = `${p.title}\n${p.symptom}\n${p.errorSignature}`.toLowerCase()
       const words = wordSet(hay)
       // Whole words only: "call" must not match "callback". CJK has no word boundaries.
@@ -159,4 +166,19 @@ function contentTerms(p: Pick<Pitfall, 'title' | 'symptom' | 'errorSignature'>):
     }
   }
   return out
+}
+
+/**
+ * What a failure is about, for matchErrorOutput's `context`: the command's words, with each
+ * path also offering its last segment ("./node_modules/.bin/eslint" → "eslint").
+ */
+export function commandContext(command: string): string[] {
+  const out = new Set<string>()
+  for (const raw of command.slice(0, 2_000).toLowerCase().match(/[a-z0-9@][\w@./-]*/g) ?? []) {
+    const t = raw.replace(/[./-]+$/, '')
+    if (t) out.add(t)
+    const last = t.split('/').pop()
+    if (last) out.add(last)
+  }
+  return [...out]
 }

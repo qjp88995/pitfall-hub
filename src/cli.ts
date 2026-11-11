@@ -93,13 +93,13 @@ export async function main(argv: string[]) {
   if (remoteUrl && cmd === 'rpc') {
     const { remoteBackend } = await import('./hooks/claude.js')
     const backend = remoteBackend(remoteUrl, process.env.PITFALL_HUB_TOKEN, 10_000)
-    const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string }
+    const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string; context?: string[] }
     const method = positionals[0]
     const result =
       method === 'relevant'
         ? await backend.relevant(body.tags ?? [], body.limit ?? 8)
         : method === 'match'
-          ? await backend.match(body.output ?? '')
+          ? await backend.match(body.output ?? '', body.context)
           : method === 'issues'
             ? await backend.openIssues(body.limit ?? 10)
             : method === 'review'
@@ -179,7 +179,7 @@ export async function main(argv: string[]) {
     }
     case 'rpc': {
       // JSON in, JSON out; the transport for hooks running outside the container (docker exec).
-      const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string }
+      const body = JSON.parse(readInput('-') || '{}') as { tags?: string[]; limit?: number; output?: string; context?: string[] }
       if (positionals[0] === 'relevant') return console.log(JSON.stringify(store.relevantForTags(body.tags ?? [], body.limit)))
       if (positionals[0] === 'issues') {
         const { FeedbackStore } = await import('./core/feedback.js')
@@ -191,7 +191,7 @@ export async function main(argv: string[]) {
       }
       if (positionals[0] === 'match') {
         const { matchErrorOutput } = await import('./core/match.js')
-        return console.log(JSON.stringify(matchErrorOutput(store, body.output ?? '')))
+        return console.log(JSON.stringify(matchErrorOutput(store, body.output ?? '', { context: body.context })))
       }
       return fail(`Unknown rpc method "${positionals[0]}"`)
     }

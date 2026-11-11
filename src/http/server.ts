@@ -57,8 +57,8 @@ export function createApp(store: PitfallStore, opts: AppOptions = {}) {
 
   // Used by host-side Claude Code hooks when the database lives in a container.
   app.post('/api/match', async (c) => {
-    const { output } = await c.req.json<{ output: string }>()
-    return c.json(matchErrorOutput(store, output ?? ''))
+    const { output, context } = await c.req.json<{ output: string; context?: string[] }>()
+    return c.json(matchErrorOutput(store, output ?? '', { context: Array.isArray(context) ? context : undefined }))
   })
   app.post('/api/relevant', async (c) => {
     const { tags, limit } = await c.req.json<{ tags: string[]; limit?: number }>()

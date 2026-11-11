@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { defaultDbPath } from '../core/db.js'
 import { ENVIRONMENT_TAGS, fingerprint } from '../core/fingerprint.js'
 import { formatErrorMatches, oneLine } from '../core/format.js'
-import { matchErrorOutput, type ErrorMatch } from '../core/match.js'
+import { commandContext, matchErrorOutput, type ErrorMatch } from '../core/match.js'
 import { reviewQueue, type ReviewItem } from '../core/review.js'
 import type { PitfallStore } from '../core/store.js'
 import { FeedbackStore, type Feedback } from '../core/feedback.js'
@@ -33,7 +33,8 @@ interface SessionState {
 /** Where hooks get their data: the local database, or a pitfall-hub server (e.g. the Docker container). */
 export interface HookBackend {
   relevant(tags: string[], limit: number): Promise<{ items: (Pitfall & { matchedTags: string[] })[]; total: number }>
-  match(output: string): Promise<ErrorMatch[]>
+  /** `context`: stack tags and command words; terms matches need an entry tag among them. */
+  match(output: string, context?: string[]): Promise<ErrorMatch[]>
   openIssues(limit: number): Promise<{ items: Feedback[]; total: number }>
   reviewQueue(limit: number): Promise<{ items: ReviewItem[]; total: number }>
 }
@@ -44,7 +45,7 @@ const PLATFORM_PROJECT = 'pitfall-hub'
 export function localBackend(store: PitfallStore): HookBackend {
   return {
     relevant: async (tags, limit) => store.relevantForTags(tags, limit),
-    match: async (output) => matchErrorOutput(store, output),
+    match: async (output, context) => matchErrorOutput(store, output, { context }),
     openIssues: async (limit) => new FeedbackStore(store.db).list({ limit }),
     reviewQueue: async (limit) => reviewQueue(store, { limit }),
   }
@@ -63,7 +64,7 @@ export function remoteBackend(baseUrl: string, token?: string, timeoutMs = 3000)
   }
   return {
     relevant: (tags, limit) => post('/api/relevant', { tags, limit }),
-    match: (output) => post('/api/match', { output }),
+    match: (output, context) => post('/api/match', { output, context }),
     openIssues: (limit) => post(`/api/feedback?limit=${limit}`),
     reviewQueue: (limit) => post(`/api/review?limit=${limit}`),
   }
@@ -87,7 +88,7 @@ export function dockerBackend(container: string, timeoutMs = 5000): HookBackend 
     })
   return {
     relevant: (tags, limit) => rpc('relevant', { tags, limit }),
-    match: (output) => rpc('match', { output }),
+    match: (output, context) => rpc('match', { output, context }),
     openIssues: (limit) => rpc('issues', { limit }),
     reviewQueue: (limit) => rpc('review', { limit }),
   }
@@ -173,11 +174,22 @@ async function toolFailure(input: HookInput, backend: HookBackend) {
   updateSession(input.session_id, (s) => ({ ...s, failures: s.failures + 1 }))
   const output = collectText(input.error) + '\n' + collectText(input.tool_response)
   if (output.trim().length < 10) return null
-  const matches = await backend.match(output)
+  const matches = await backend.match(output, failureContext(input))
   if (!matches.length) return null
   return {
     hookSpecificOutput: { hookEventName: input.hook_event_name ?? 'PostToolUseFailure', additionalContext: formatErrorMatches(matches) },
   }
+}
+
+/**
+ * The project's stack (environment tags like wsl say nothing about which tool failed) plus the
+ * failed command's words, so a docker entry can still match `docker compose up` run from a
+ * project with no Docker files.
+ */
+function failureContext(input: HookInput): string[] {
+  const stack = fingerprint(input.cwd || process.cwd()).tags.filter((t) => !ENVIRONMENT_TAGS.has(t))
+  const command = (input.tool_input as { command?: unknown } | undefined)?.command
+  return [...stack, ...(typeof command === 'string' ? commandContext(command) : [])]
 }
 
 function stop(input: HookInput) {

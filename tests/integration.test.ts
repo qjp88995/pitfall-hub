@@ -5,7 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openDatabase } from '../src/core/db.js'
-import { distinctiveTokens, matchErrorOutput } from '../src/core/match.js'
+import { commandContext, distinctiveTokens, matchErrorOutput } from '../src/core/match.js'
 import { PitfallStore } from '../src/core/store.js'
 import { install, uninstall } from '../src/install/claude.js'
 import { createMcpServer } from '../src/mcp/server.js'
@@ -317,5 +317,30 @@ describe('plain-word overlaps', () => {
 
 ✖ 1 problem (1 error, 0 warnings)`
     expect(matchErrorOutput(store, out)).toEqual([])
+  })
+})
+
+describe('failure context', () => {
+  it('needs an entry tag among the stack tags or command words for a terms match', () => {
+    const p = store.create({
+      title: 'Prisma client not generated after pnpm install',
+      symptom: '@prisma/client did not initialize yet. Please run "prisma generate"',
+      solution: 'Add "postinstall": "prisma generate"',
+      tags: ['prisma'],
+    })
+    const out = 'Error: @prisma/client did not initialize yet. Please run "prisma generate" and try to import it again.'
+    expect(matchErrorOutput(store, out, { context: ['eslint', 'typescript', 'node', 'tsx', 'src/seed.ts'] })).toEqual([])
+    expect(matchErrorOutput(store, out, { context: ['typescript', 'prisma'] }).map((m) => m.pitfall.id)).toEqual([p.id])
+    expect(matchErrorOutput(store, out, { context: commandContext('./node_modules/.bin/prisma db seed') })).toHaveLength(1)
+  })
+
+  it('keeps exact signature matches regardless of context', () => {
+    store.create({ title: 'x', solution: 'y', tags: ['docker'], errorSignature: 'failed to solve: DeadlineExceeded: context deadline exceeded' })
+    const out = 'ERROR: failed to solve: DeadlineExceeded: context deadline exceeded'
+    expect(matchErrorOutput(store, out, { context: ['eslint'] })).toHaveLength(1)
+  })
+
+  it('splits command paths into their last segment', () => {
+    expect(commandContext('cd /repo && ./node_modules/.bin/eslint src/ --fix')).toEqual(expect.arrayContaining(['eslint', 'cd', 'src']))
   })
 })
