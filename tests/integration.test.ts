@@ -301,6 +301,50 @@ Migrations complete.`
 Migrations complete.`
     expect(matchErrorOutput(store, truncated)).toHaveLength(1)
   })
+
+  it('does not count standard-library calls as identifiers', () => {
+    store.create({
+      title: 'WSL2 wall clock jumps back ~2s every few seconds: short real-time expiry tests flake',
+      symptom: 'After a 2.1s setTimeout `Math.floor(Date.now()/1000)` is still the same second.',
+      solution: 'x',
+      tags: ['wsl', 'node'],
+    })
+    const out = `const iat = Math.floor(Date.now() / 1000)
+const exp = iat + 3600
+token minted
+0`
+    expect(matchErrorOutput(store, out, { context: ['node'] })).toEqual([])
+  })
+})
+
+describe('warning lines', () => {
+  const deploy = () =>
+    store.create({
+      title: 'pnpm deploy in Docker re-fetches private-registry packages: the auth token must be mounted for the deploy step too',
+      symptom:
+        'WARN  Issue while reading "/app/.npmrc". Failed to replace env in config: ${LICENSE_HUB_TOKEN}\nERR_PNPM_FETCH_404  GET https://registry.npmjs.org/@deck-kit%2Fweb: Not Found - 404',
+      errorSignature: 'ERR_PNPM_FETCH_404  GET https://registry.npmjs.org/@deck-kit%2Fweb: Not Found - 404',
+      solution: 'mount the secret',
+      tags: ['pnpm', 'docker'],
+    })
+
+  it('ignores a pnpm WARN line when the output has real error lines', () => {
+    deploy()
+    const out = ` WARN  Issue while reading "/app/.npmrc". Failed to replace env in config: \${LICENSE_HUB_TOKEN}
+/app/src/index.ts
+  1:1  error  Run autofix to sort these imports!  simple-import-sort/imports
+
+✖ 1 problem (1 error, 0 warnings)
+ ELIFECYCLE  Command failed with exit code 1.`
+    expect(matchErrorOutput(store, out, { context: ['pnpm', 'docker', 'eslint'] })).toEqual([])
+  })
+
+  it('still matches the real failure next to the warning', () => {
+    const p = deploy()
+    const out = ` WARN  Issue while reading "/app/.npmrc". Failed to replace env in config: \${LICENSE_HUB_TOKEN}
+ ERR_PNPM_FETCH_404  GET https://registry.npmjs.org/@deck-kit%2Fweb: Not Found - 404`
+    expect(matchErrorOutput(store, out, { context: ['pnpm'] }).map((m) => m.pitfall.id)).toEqual([p.id])
+  })
 })
 
 describe('plain-word overlaps', () => {

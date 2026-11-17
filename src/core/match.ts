@@ -23,6 +23,18 @@ const MIN_SIGNATURE = 12
 // Error codes, package names, flags: ERR_PNPM_LIFECYCLE, @prisma/client, linux-x64. Plain words
 // like "server" or "curl" show up in unrelated failures and are not enough on their own.
 const IDENTIFIER = /[_@/.$-]|\d/
+// Standard-library calls (Math.floor, Date.now, JSON.parse, os.path) contain a dot but appear in any
+// code a command prints; they say nothing about which problem it hit.
+const BUILTIN_NS = new Set(
+  `math date json object array string number promise console process buffer reflect symbol error regexp
+   window document self this os sys re path json time datetime`.split(/\s+/),
+)
+function isIdentifier(t: string): boolean {
+  return IDENTIFIER.test(t) && !BUILTIN_NS.has(t.split('.')[0] ?? '')
+}
+// Lines a tool labels as a warning (pnpm " WARN  …", "npm warn", "(node:12) Warning:", "[WARN]").
+// A warning that says "Failed to replace env" is not why the command failed when real error lines exist.
+const WARNING_LINE = /^\s*(?:\S+\s+){0,2}?(?:\[?warn(?:ing)?\]?(?::|\s|$)|⚠)/i
 const MIN_SIGNATURE_TOKENS = 2
 // Plain English words ("type", "data", "instead") overlap almost any long symptom; without an
 // identifier among them, demand more of them and a bigger share of the output's tokens.
@@ -51,6 +63,8 @@ export function isDistinctiveSignature(signature: string): boolean {
  *     a quarter, or 2+ covering half. Plain words only: 4+ covering 40%. Output with no error-looking line at all (a command that failed
  *     silently after printing routine logs or NOTICEs) needs 2+ identifier-like tokens instead, since
  *     its words are just whatever the command printed ("migrations", "complete", "routine").
+ *     Lines labelled as warnings are not error lines, and standard-library calls (Math.floor,
+ *     Date.now) do not count as identifier-like.
  *     With a `context` (the project's stack tags plus the words of the failed command), a terms
  *     match also needs one of the entry's tags in it: an eslint failure in a project without Docker
  *     must not pull in a Docker entry because both texts say "type" and "data". Signature matches
@@ -73,7 +87,7 @@ export function matchErrorOutput(store: PitfallStore, output: string, opts: { li
   }
 
   const tokens = distinctiveTokens(text)
-  const hasErrorLine = text.split('\n').some((l) => ERROR_LINE.test(l))
+  const hasErrorLine = errorLines(text).length > 0
   if (tokens.length >= 2 && results.length < limit) {
     const { items } = store.search({ q: tokens.join(' '), limit: 10 })
     for (const p of items) {
@@ -84,7 +98,7 @@ export function matchErrorOutput(store: PitfallStore, output: string, opts: { li
       // Whole words only: "call" must not match "callback". CJK has no word boundaries.
       const matched = tokens.filter((t) => (/^\p{Script=Han}/u.test(t) ? hay.includes(t) : words.has(t)))
       const ratio = matched.length / tokens.length
-      const specific = matched.filter((t) => IDENTIFIER.test(t)).length
+      const specific = matched.filter(isIdentifier).length
       const ok = hasErrorLine
         ? specific >= 1
           ? (matched.length >= 3 && ratio >= 0.25) || (matched.length >= 2 && ratio >= 0.5)
@@ -98,8 +112,16 @@ export function matchErrorOutput(store: PitfallStore, output: string, opts: { li
   return results.slice(0, limit)
 }
 
+/**
+ * Error-looking lines, minus lines labelled as warnings. Output whose only such lines are warnings
+ * counts as having no error line, so it gets the stricter two-identifier rule over all its lines.
+ */
+function errorLines(output: string): string[] {
+  return output.split('\n').filter((l) => ERROR_LINE.test(l) && !WARNING_LINE.test(l))
+}
+
 export function distinctiveTokens(output: string, max = 12): string[] {
-  const lines = output.split('\n').filter((l) => ERROR_LINE.test(l))
+  const lines = errorLines(output)
   const counts = new Map<string, number>()
   for (const line of (lines.length ? lines : output.split('\n')).slice(0, 40)) {
     for (const m of line.toLowerCase().matchAll(/[a-z_$][\w$.@/-]{3,}|[\p{Script=Han}]{3,}/gu)) {
